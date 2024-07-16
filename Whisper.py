@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[30]:
+# In[1]:
 
 
 import os
@@ -10,7 +10,7 @@ import typing
 from datasets import load_dataset, Dataset, IterableDataset
 from functools import reduce
 chime_path = "/home/niklas/Downloads/Datasets/CHIME6/CHiME6_eval/CHiME6/audio/eval"
-dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
+#dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 
 import os
 from datasets import Dataset, Audio
@@ -32,7 +32,8 @@ import pandas as pd
     #dataset = dataset.cast_column("file_path", Audio(sampling_rate=16000))
     
     #dataset.save_to_disk(output_path)
-
+/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6
+/project/data_asr/dipco/Dipco
 directory_path = dipco_path
 output_path = dipco_path
 create_dipco_from_directory(directory_path, output_path)'''
@@ -73,7 +74,7 @@ create_audio_dataset_from_directory(directory_path, output_path)
 
 
 
-# In[31]:
+# In[13]:
 
 
 import os  
@@ -81,10 +82,11 @@ import pandas as pd
 import torchaudio 
 import re 
 from typing import List
-dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"    
+import glob
+dipco_path = "/project/data_asr/dipco/Dipco"    
 dev_path = os.path.join(dipco_path, 'audio/dev')
 transcript_dev_path = os.path.join(dipco_path, 'transcriptions/dev')
-file_path = "S02.json"
+
 
 def extract_prefix(file_path:str) -> str:
     pattern = r'^(.*)\.json$'
@@ -95,28 +97,55 @@ def extract_prefix(file_path:str) -> str:
     else :
         raise ValueError
     
-session = extract_prefix(file_path=file_path)
-print(session)  
 
 
 
-full_path = os.path.join(transcript_dev_path, file_path)
-df = pd.read_json(full_path)
+
+def list_json_files(directory):
+    # Construct the file path pattern
+    pattern = os.path.join(directory, '*.json')
+    
+    # Use glob to get a list of files matching the pattern
+    json_files = glob.glob(pattern)
+    
+    return json_files
+
+def load_and_concatenate_json_files(directory):
+    json_files = list_json_files(directory)
+    
+    # List to hold individual DataFrames
+    data_frames = []
+    
+    for json_file in json_files:
+        # Read the JSON file into a DataFrame
+        df = pd.read_json(json_file)
+        data_frames.append(df)
+    
+    # Concatenate all DataFrames into a single DataFrame
+    combined_df = pd.concat(data_frames, ignore_index=True)
+    
+    return combined_df
+
+
+df = load_and_concatenate_json_files(transcript_dev_path)
+
+#df = pd.read_json(full_path)
 transcriptions = df['words']
 
 print(df.columns)
 print(df['start_time'].head(1))
-print(full_path)
+#print(full_path)
 
 
 
-# In[32]:
+# In[14]:
 
 
 from transformers import WhisperFeatureExtractor
 from typing import Dict
 import pprint
 import torch 
+import matplotlib.pyplot as plt 
 import multiprocessing
 feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
 def expand_start_time(row):
@@ -178,11 +207,12 @@ expanded_df = expanded_df.explode('file_path').reset_index(drop=True)
 
 #change the seconds to frames
 def get_Frames(starting_second:float, sample_rate:int, end_second:float )-> List[int] :
-     return [int(starting_second*sample_rate), int(end_second)*sample_rate]
+     return [int(starting_second*sample_rate), int(end_second*sample_rate)]
 
 expanded_df['frames'] = expanded_df.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
 expanded_df = expanded_df[expanded_df['audio'] != 'close-talk']
-columns_to_drop = ['mother_tongue', 'ref', 'nativeness', 'audio', 'session_id','speaker_id', 'gender',  'end']
+columns_to_drop = ['mother_tongue', 'ref', 'nativeness', 'audio', 'session_id','speaker_id', 'gender']
+
 #get the maximum speaking duration 
 expanded_df['duration'] = expanded_df.apply(lambda row: row['end'] - row['start'], axis=1)
 # print(expanded_df['duration'].max()) yielded that the biggest in the dipco dataset was above 60 seconds for those an additional separation is required 
@@ -212,7 +242,7 @@ print(count_df)"""
 
 print(expanded_df.shape)
 pprint.pp(expanded_df.head(10))
-expanded_df = expanded_df.head(15)
+
 print(expanded_df.columns)
 #expanded_df['logmel'] = expanded_df.apply(lambda row: get_logmel(row['startframe'], row['endframe'], row['file_path']), axis=1)
 def get_logmel(startframe: int, endframe: int, filepath: str) -> Dict[str, torch.Tensor]:
@@ -230,7 +260,8 @@ def load_audio_segment(filepath, start_frame, end_frame):
 
 
 
-# In[33]:
+
+# In[16]:
 
 
 import torch
@@ -271,7 +302,7 @@ def extract_audio(batch):
         
         # Ensure filepath is a string
         if isinstance(filepath, dict):
-            print(file_path)
+            print(filepath)
         
         # Load audio segment from file path
         #waveform, sample_rate = load_audio_segment(filepath, start_frame, end_frame)
@@ -337,7 +368,7 @@ processed_dataset.save_to_disk("./Downloads/processed_dataset")
 dataset.save_to_disk('./Downloads/processed_dataset')'''
 
 
-# In[34]:
+# In[5]:
 
 
 #numba gives 1 sec improvement over 17 sec per sample 
@@ -388,12 +419,12 @@ def extract_audio(batch):
 dataset = dataset.map(extract_audio, batched=True, batch_size=1, num_proc=1, load_from_cache_file=True)'''
 
 
-# In[35]:
+# In[6]:
 
 
 # c profiling whether it is faster to separate the audio so that not as much needs to be loaded
 
-
+"""
 import torchaudio
 import torch
 import os
@@ -426,22 +457,35 @@ for i in range(10):
 print("Segments saved successfully.")
 
 
+"""
 
 
-# In[36]:
+# In[17]:
+
+
+import inspect
+import whisper
+source_code = inspect.getsource(whisper.load_audio)
+print(source_code)
+
+
+# In[ ]:
 
 
 from IPython.display import IFrame
 import whisper
-
+from tqdm import tqdm 
 model = whisper.load_model("base")
 expanded_df['results'] = ''
+expanded_df.reset_index(drop=True, inplace=True)
+print(expanded_df.shape)
 # load audio and pad/trim it to fit 30 seconds
 
 def transcribe_audio(expanded_df, model):
     
-    for i in range(10):
-        audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+    for i in tqdm(range(expanded_df.shape[0])):
+        #audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio,_ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i], num_frames=expanded_df['endframe'][i]-expanded_df['startframe'][i])
         audio = whisper.pad_or_trim(audio)
     
         # make log-Mel spectrogram and move to the same device as the model
@@ -449,8 +493,8 @@ def transcribe_audio(expanded_df, model):
     
     
         # detect the spoken language
-        _, probs = model.detect_language(mel)
-        print(f"Detected language: {max(probs, key=probs.get)}")
+        #_, probs = model.detect_language(mel)
+        #print(f"Detected language: {max(probs, key=probs.get)}")
     
         # decode the audio
         options = whisper.DecodingOptions()
@@ -458,38 +502,50 @@ def transcribe_audio(expanded_df, model):
         expanded_df.loc[i,'results'] = result 
     
         # print the recognized text
-        print(result.text)
+        #print(result[0].text)
     return expanded_df
 expanded_df=transcribe_audio(expanded_df, model)
-
+expanded_df.to_csv('dipco_eval.csv', index=False)
     
 #cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
 
 # result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
 
 
-# In[37]:
+# In[ ]:
+
+
+import matplotlib.pyplot as plt
+print(expanded_df.columns)
+expanded_df['frame_diff'] = expanded_df['endframe'] - expanded_df['startframe'] 
+print(expanded_df['duration'].nsmallest(20))
+filtered_df = expanded_df[expanded_df['frame_diff'] < 0]
+print(filtered_df)
+# Plot the histogram with 20 bins
+plt.hist(expanded_df['frame_diff'], bins=20, edgecolor='black')
+plt.title('Histogram of Frame Differences')
+plt.xlabel('Frame Difference (endframe - startframe)')
+plt.ylabel('Frequency')
+
+# Show the plot
+plt.show()
+
+
+# In[ ]:
 
 
 print(dir(model))
 
 
-# In[38]:
+# In[ ]:
 
 
 import meeteval
 from meeteval.viz.visualize import AlignmentVisualization
 
-folder = r'https://raw.githubusercontent.com/fgnt/meeteval/main/'
-av = AlignmentVisualization(
-    meeteval.io.load(folder + 'example_files/ref.stm').groupby('filename')['recordingA'],
-    meeteval.io.load(folder + 'example_files/hyp.stm').groupby('filename')['recordingA']
-)
-
-av.dump('viz.html')  # Create standalone HTML file
 
 
-# In[39]:
+# In[ ]:
 
 
 import meeteval
@@ -524,7 +580,7 @@ expanded_df['wer'] = expanded_df.apply(
 print(expanded_df['wer'])
 
 
-# In[40]:
+# In[ ]:
 
 
 import os
@@ -594,7 +650,7 @@ for waveforms, file_paths in tqdm(dataloader, total=len(dataloader), desc="Proce
 '''
 
 
-# In[41]:
+# In[ ]:
 
 
 import torch
@@ -624,7 +680,7 @@ class CustomAudioDataset(Dataset):
         return audio_tensor, label
 
 
-# In[42]:
+# In[ ]:
 
 
 from torch.utils.data import DataLoader
@@ -642,7 +698,7 @@ for batch in dataloader:
     # Your training code here
 
 
-# In[43]:
+# In[ ]:
 
 
 from transformers import Trainer, TrainingArguments
@@ -665,19 +721,19 @@ class CustomTrainer(Trainer):
         )
 
 
-# In[44]:
+# In[ ]:
 
 
 from sklearn.model_selection import train_test_split
 
 # Assuming df is your DataFrame
-train_df, eval_df = train_test_split(df, test_size=0.2)
+train_df, eval_df = train_test_split(expanded_df, test_size=0.2)
 
 train_dataset = CustomAudioDataset(train_df)
 eval_dataset = CustomAudioDataset(eval_df)
 
 
-# In[45]:
+# In[ ]:
 
 
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
@@ -687,41 +743,15 @@ processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
 
 
-# In[46]:
+# In[ ]:
 
 
 model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
-print(expanded_df['file_path'][0])
+print(expanded_df.columns)
 
 
-# In[47]:
+# In[ ]:
 
-
-
-from transformers import TrainingArguments
-
-training_args = TrainingArguments(
-    output_dir="./results",
-    evaluation_strategy="epoch",
-    learning_rate=3e-4,
-    per_device_train_batch_size=2,
-    per_device_eval_batch_size=2,
-    num_train_epochs=3,
-    weight_decay=0.01,
-    logging_dir='./logs',
-    logging_steps=10,
-)
-from transformers import Trainer
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
-    tokenizer=processor.feature_extractor,  # Assuming WhisperProcessor is used for tokenization
-)
-
-trainer.train()
 
 
 # In[ ]:
@@ -741,5 +771,10 @@ data_loader = torch.utils.data.DataLoader(
 from datasets import Dataset
 
 source_code = inspect.signature(Dataset.from_pandas)
+import inspect
+from transformers import WhisperFeatureExtractor
+
+# Get the source code of the WhisperFeatureExtractor class
+source_code = inspect.getsource(WhisperFeatureExtractor)
 print(source_code)
 
