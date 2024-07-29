@@ -95,8 +95,8 @@ import torch
 import matplotlib.pyplot as plt 
 import multiprocessing
 import inspect
-model_name = "openai/whisper-large"
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
+model_id = "openai/whisper-large-v3"
+feature_extractor = WhisperFeatureExtractor.from_pretrained(model_id)
 print(inspect.signature(feature_extractor))
 def expand_start_time(row):
     start_time_dict = row['start_time']
@@ -266,9 +266,8 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from datasets import Features, Value
 from transformers import WhisperTokenizer
 from datasets import load_dataset
-device = "cuda:0" 
+device = "cuda" 
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
-model_id = "openai/whisper-tiny"
 features = Features({
     'file_path': Value('string'),
     'words': Value('string'),
@@ -282,9 +281,9 @@ def Hug_dataset_creation(expanded_df, mode):
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)  
     if mode == 'train':
-        return shuffled_dataset.select(range(100))
+        return shuffled_dataset
     else:
-          return shuffled_dataset.select(range(100))
+          return shuffled_dataset.select(range(1000))
         
 
     
@@ -319,11 +318,14 @@ def prepare_dataset(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
-
+'''
 train_dataset = train_dataset.map(prepare_dataset)
 eval_dataset = train_dataset.map(prepare_dataset)
 train_dataset.save_to_disk("train.hf")
-eval_dataset.save_to_disk("eval.hf")
+eval_dataset.save_to_disk("eval.hf")'''
+import datasets
+train_dataset = datasets.load_from_disk('train.hf')
+eval_dataset = datasets.load_from_disk('eval.hf')
 import os
 from datasets import load_from_disk, Dataset
 
@@ -343,8 +345,6 @@ else:
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True,  
 )
-
-model.to(device)
 
 
 
@@ -390,8 +390,8 @@ def transcribe_audio(expanded_df):
     
     return expanded_df
 print(expanded_df.columns)
-expanded_df=transcribe_audio(expanded_df)
-expanded_df.to_csv('dipco_dev.csv', index=False)
+'''expanded_df=transcribe_audio(expanded_df)
+expanded_df.to_csv('dipco_dev.csv', index=False)'''
 
     
 #cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
@@ -463,15 +463,16 @@ def compute_metrics(pred):
     return {"wer": wer}
 training_args = Seq2SeqTrainingArguments(
     output_dir="./whisper-small-hi",  # change to a repo name of your choice
-    per_device_train_batch_size=16,
-    gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
-    max_steps=101,#4000
+    max_steps=6000,#4000
     gradient_checkpointing=True,
+    dataloader_num_workers=1,
     fp16=True,
     eval_strategy="steps",
-    per_device_eval_batch_size=8,
+    per_device_eval_batch_size=2,
     predict_with_generate=True,
     generation_max_length=225,
     save_steps=100,
@@ -494,7 +495,13 @@ trainer = Seq2SeqTrainer(
     tokenizer=processor.feature_extractor,
 )
 processor.save_pretrained(training_args.output_dir)
-trainer.train()
+from memory_profiler import profile
+
+@profile
+def train_model():
+        trainer.train()
+
+train_model()
 
 
 # In[39]:
