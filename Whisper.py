@@ -267,7 +267,7 @@ from datasets import Features, Value
 from transformers import WhisperTokenizer
 from datasets import load_dataset
 device = "cuda" 
-torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
+torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float16
 features = Features({
     'file_path': Value('string'),
     'words': Value('string'),
@@ -318,14 +318,14 @@ def prepare_dataset(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
-'''
+
 train_dataset = train_dataset.map(prepare_dataset)
-eval_dataset = train_dataset.map(prepare_dataset)
-train_dataset.save_to_disk("train.hf")
-eval_dataset.save_to_disk("eval.hf")'''
+train_dataset.save_to_disk("train3.hf")
+eval_dataset = eval_dataset.map(prepare_dataset)
+eval_dataset.save_to_disk("eval3.hf")
 import datasets
-train_dataset = datasets.load_from_disk('train.hf')
-eval_dataset = datasets.load_from_disk('eval.hf')
+train_dataset = datasets.load_from_disk('train3.hf')
+eval_dataset = datasets.load_from_disk('eval3.hf')
 import os
 from datasets import load_from_disk, Dataset
 
@@ -333,17 +333,8 @@ from datasets import load_from_disk, Dataset
 dataset_path = "train.hf"
 
 # Check if the directory exists
-if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
-    try:
-        # Attempt to load the dataset
-        dataset = load_from_disk(dataset_path)
-        print("Dataset loaded.")
-    except Exception as e:
-        print(f"error while loading the dataset: {e}")
-else:
-    print(f"The directory '{dataset_path}' does not exist or is not a directory.")
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True,  
+    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True,  
 )
 
 
@@ -360,7 +351,7 @@ pipe = pipeline(
     feature_extractor=processor.feature_extractor,
     max_new_tokens=128,
     chunk_length_s=30,
-    batch_size=16,
+    batch_size=1,
     return_timestamps=True,
     torch_dtype=torch_dtype,
     device=device,
@@ -463,8 +454,8 @@ def compute_metrics(pred):
     return {"wer": wer}
 training_args = Seq2SeqTrainingArguments(
     output_dir="./whisper-small-hi",  # change to a repo name of your choice
-    per_device_train_batch_size=2,
-    gradient_accumulation_steps=8,  # increase by 2x for every 2x decrease in batch size
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=16,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
     max_steps=6000,#4000
