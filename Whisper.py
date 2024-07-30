@@ -78,7 +78,7 @@ df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
 #df = pd.read_json(full_path)
 transcriptions = df['words']
-
+print(eval_df.head(10))
 print(df.columns)
 print(df['start_time'].head(1))
 #print(full_path)
@@ -96,7 +96,7 @@ import matplotlib.pyplot as plt
 import multiprocessing
 import inspect
 model_id = "openai/whisper-large-v3"
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_id)
+feature_extractor = WhisperFeatureExtractor.from_pretrained(model_id, language='en')
 print(inspect.signature(feature_extractor))
 def expand_start_time(row):
     start_time_dict = row['start_time']
@@ -131,14 +131,18 @@ def get_corresponding_end_time(dict:dict, key:str):
 # U01 - U05 & CH 1 - 7 
 
 # Function to generate microphone paths
-def generate_microphone_paths(row):
+def generate_microphone_paths(row,mode):
     paths = []
     for i in range(1, 7):
-        path = f"{dev_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
+        path = f"{mode}/{row['session_id']}_{row['audio']}.CH{i}.wav"
         paths.append(path)
+                
+        
 
-    path = f"{dev_path}/{row['session_id']}_{row['speaker_id']}.wav"
+
+    path = f"{mode}/{row['session_id']}_{row['speaker_id']}.wav"
     paths.append(path)
+
     return paths
 
 
@@ -192,7 +196,7 @@ def load_audio_segment(filepath, start_frame, end_frame):
 #print(expanded_df.head(10))
 
 
-def string_parsing(dataframe):
+def string_parsing(dataframe, path):
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
@@ -202,7 +206,8 @@ def string_parsing(dataframe):
     dataframe['end'] = dataframe['end'].apply(time_to_seconds)
     dataframe = dataframe.drop(columns=['end_time'])
     # Apply the function to generate the paths for each row
-    dataframe['file_path'] = dataframe.apply(generate_microphone_paths, axis=1)
+    dataframe['file_path'] = dataframe.apply(lambda row: generate_microphone_paths(row,path), axis=1)
+    #dataframe = dataframe[dataframe['file_path'].str.contains(path)]
     # Expand the DataFrame to include the microphone paths
     dataframe = dataframe.explode('file_path').reset_index(drop=True)
     dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
@@ -214,17 +219,16 @@ def string_parsing(dataframe):
     if not dataframe['frames'].apply(validate_frames_column).all():
         raise ValueError("Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
-    print(dataframe.shape)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe.drop(columns=['endframe', 'session_id', 'speaker_id','gender', 'nativeness','mother_tongue','audio','start','end','endframe','duration','frames', 'ref'], inplace=True)
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe 
 
-expanded_df = string_parsing(df)
-eval_df = string_parsing(eval_df)
-
-    
+expanded_df = string_parsing(df,dev_path)
+eval_df = string_parsing(eval_df, eval_path)
+print(eval_df.head(10))
+print('jo')
 
 
 
@@ -260,7 +264,6 @@ eval_df = string_parsing(eval_df)
 
 # In[29]:
 
-
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from datasets import Features, Value
@@ -277,13 +280,14 @@ features = Features({
     
 })
 tokenizer = WhisperTokenizer.from_pretrained("openai/whisper-large-v3", task="transcribe", language="en")
-def Hug_dataset_creation(expanded_df, mode):
-    dataset = Dataset.from_pandas(expanded_df, features=features)
-    shuffled_dataset = dataset.shuffle(seed=42)  
+def Hug_dataset_creation(dfs, mode):
+    print(dfs.head(10))
+    shuffled_dataframe = dfs.sample(frac=1, random_state=42)
+    shuffled_dataset = Dataset.from_pandas(dfs, features=features)
     if mode == 'train':
         return shuffled_dataset
     else:
-          return shuffled_dataset.select(range(1000))
+        return shuffled_dataset.select(range(1000))
         
 
     
@@ -318,11 +322,12 @@ def prepare_dataset(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
-
+'''
 train_dataset = train_dataset.map(prepare_dataset)
 train_dataset.save_to_disk("train3.hf")
+''''''
 eval_dataset = eval_dataset.map(prepare_dataset)
-eval_dataset.save_to_disk("eval3.hf")
+eval_dataset.save_to_disk("eval3.hf")'''
 import datasets
 train_dataset = datasets.load_from_disk('train3.hf')
 eval_dataset = datasets.load_from_disk('eval3.hf')
@@ -330,11 +335,10 @@ import os
 from datasets import load_from_disk, Dataset
 
 # Define the path to the dataset directory
-dataset_path = "train.hf"
 
 # Check if the directory exists
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True,  
+    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True, 
 )
 
 
@@ -358,6 +362,15 @@ pipe = pipeline(
  
 )
 
+def transcribe_audio_with_model(dataframe, dataset, pipe):
+    for idx, example in enumerate(dataset):
+        sample = dataset[idx]["audio"]
+        result = pipe["audio"]
+        dataframe.loc[idx,'results'] = result['text']
+
+    return dataframe
+eval_df = eval_df.sample(frac=1, random_state=42).head(1000)
+eval_df = transcribe_audio_with_model(eval_df, eval_dataset,pipe)
 from tqdm import tqdm 
 
 expanded_df['results'] = ''
@@ -429,6 +442,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             labels = labels[:, 1:]
 
         batch["labels"] = labels
+        batch["input_features"] = batch["input_features"].to(torch.float16)
 
         return batch
 data_collator = DataCollatorSpeechSeq2SeqWithPadding(
@@ -458,8 +472,7 @@ training_args = Seq2SeqTrainingArguments(
     gradient_accumulation_steps=16,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
-    max_steps=6000,#4000
-    gradient_checkpointing=True,
+    max_steps=4000,#4000
     dataloader_num_workers=1,
     fp16=True,
     eval_strategy="steps",
@@ -492,7 +505,7 @@ from memory_profiler import profile
 def train_model():
         trainer.train()
 
-train_model()
+#train_model()
 
 
 # In[39]:
