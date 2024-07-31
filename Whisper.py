@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[26]:
+# In[35]:
 
 
 import os
@@ -15,11 +15,11 @@ chime_path = "/home/niklas/Downloads/Datasets/CHIME6/CHiME6_eval/CHiME6/audio/ev
 import os
 from datasets import Dataset, Audio
 import pandas as pd
+import inspect
+from datasets import load_from_disk
 
 
-
-
-# In[27]:
+# In[36]:
 
 
 import os  
@@ -78,14 +78,14 @@ df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
 #df = pd.read_json(full_path)
 transcriptions = df['words']
-print(eval_df.head(10))
+
 print(df.columns)
 print(df['start_time'].head(1))
 #print(full_path)
 
 
 
-# In[28]:
+# In[37]:
 
 
 from transformers import WhisperFeatureExtractor
@@ -95,8 +95,8 @@ import torch
 import matplotlib.pyplot as plt 
 import multiprocessing
 import inspect
-model_id = "openai/whisper-large-v3"
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_id, language='en')
+model_name = "openai/whisper-large-v3" # "openai/whisper-tiny" "distil-whisper/distil-large-v3"
+feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name, language='en')
 print(inspect.signature(feature_extractor))
 def expand_start_time(row):
     start_time_dict = row['start_time']
@@ -144,6 +144,7 @@ def generate_microphone_paths(row,mode):
     paths.append(path)
 
     return paths
+
 
 
 
@@ -207,7 +208,6 @@ def string_parsing(dataframe, path):
     dataframe = dataframe.drop(columns=['end_time'])
     # Apply the function to generate the paths for each row
     dataframe['file_path'] = dataframe.apply(lambda row: generate_microphone_paths(row,path), axis=1)
-    #dataframe = dataframe[dataframe['file_path'].str.contains(path)]
     # Expand the DataFrame to include the microphone paths
     dataframe = dataframe.explode('file_path').reset_index(drop=True)
     dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
@@ -219,6 +219,7 @@ def string_parsing(dataframe, path):
     if not dataframe['frames'].apply(validate_frames_column).all():
         raise ValueError("Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
+    print(dataframe.shape)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe.drop(columns=['endframe', 'session_id', 'speaker_id','gender', 'nativeness','mother_tongue','audio','start','end','endframe','duration','frames', 'ref'], inplace=True)
@@ -227,8 +228,8 @@ def string_parsing(dataframe, path):
 
 expanded_df = string_parsing(df,dev_path)
 eval_df = string_parsing(eval_df, eval_path)
-print(eval_df.head(10))
-print('jo')
+
+    
 
 
 
@@ -238,31 +239,32 @@ print('jo')
 
 
 
-# In[28]:
+# In[37]:
 
 
 
 
 
-# In[28]:
+# In[37]:
 
 
 
 
 
-# In[28]:
+# In[37]:
 
 
 
 
 
-# In[28]:
+# In[37]:
 
 
 
 
 
-# In[29]:
+# In[38]:
+
 
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
@@ -271,6 +273,7 @@ from transformers import WhisperTokenizer
 from datasets import load_dataset
 device = "cuda" 
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float16
+model_id = model_name
 features = Features({
     'file_path': Value('string'),
     'words': Value('string'),
@@ -279,15 +282,14 @@ features = Features({
     
     
 })
-tokenizer = WhisperTokenizer.from_pretrained("openai/whisper-large-v3", task="transcribe", language="en")
-def Hug_dataset_creation(dfs, mode):
-    print(dfs.head(10))
-    shuffled_dataframe = dfs.sample(frac=1, random_state=42)
-    shuffled_dataset = Dataset.from_pandas(dfs, features=features)
+tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
+def Hug_dataset_creation(expanded_df, mode):
+    dataset = Dataset.from_pandas(expanded_df, features=features)
+    shuffled_dataset = dataset.shuffle(seed=42)  
     if mode == 'train':
         return shuffled_dataset
     else:
-        return shuffled_dataset.select(range(1000))
+          return shuffled_dataset.select(range(100))
         
 
     
@@ -322,28 +324,41 @@ def prepare_dataset(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
-'''
+
 train_dataset = train_dataset.map(prepare_dataset)
 train_dataset.save_to_disk("train3.hf")
-''''''
 eval_dataset = eval_dataset.map(prepare_dataset)
-eval_dataset.save_to_disk("eval3.hf")'''
+eval_dataset.save_to_disk("eval3.hf")
 import datasets
 train_dataset = datasets.load_from_disk('train3.hf')
 eval_dataset = datasets.load_from_disk('eval3.hf')
+
+
 import os
 from datasets import load_from_disk, Dataset
 
 # Define the path to the dataset directory
+dataset_path = "train.hf"
 
 # Check if the directory exists
+if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
+    try:
+        # Attempt to load the dataset
+        dataset = load_from_disk(dataset_path)
+        print("Dataset loaded.")
+    except Exception as e:
+        print(f"error while loading the dataset: {e}")
+else:
+    print(f"The directory '{dataset_path}' does not exist or is not a directory.")
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True, 
+    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True,  
 )
 
+model.to(device)
 
 
-# In[53]:
+
+# In[39]:
 
 
 processor = AutoProcessor.from_pretrained(model_id, language='en')
@@ -365,12 +380,14 @@ pipe = pipeline(
 def transcribe_audio_with_model(dataframe, dataset, pipe):
     for idx, example in enumerate(dataset):
         sample = dataset[idx]["audio"]
-        result = pipe["audio"]
+        result = pipe(sample)
         dataframe.loc[idx,'results'] = result['text']
 
     return dataframe
 eval_df = eval_df.sample(frac=1, random_state=42).head(1000)
-eval_df = transcribe_audio_with_model(eval_df, eval_dataset,pipe)
+#eval_df = transcribe_audio_with_model(eval_df, eval_dataset,pipe)
+from tqdm import tqdm 
+expanded_df= eval_df
 from tqdm import tqdm 
 
 expanded_df['results'] = ''
@@ -394,8 +411,8 @@ def transcribe_audio(expanded_df):
     
     return expanded_df
 print(expanded_df.columns)
-'''expanded_df=transcribe_audio(expanded_df)
-expanded_df.to_csv('dipco_dev.csv', index=False)'''
+expanded_df=transcribe_audio(expanded_df)
+expanded_df.to_csv('dipco_dev.csv', index=False)
 
     
 #cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
@@ -406,7 +423,7 @@ expanded_df.to_csv('dipco_dev.csv', index=False)'''
 # result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
 
 
-# In[54]:
+# In[45]:
 
 
 # training of the model 
@@ -426,7 +443,9 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         # split inputs and labels since they have to be of different lengths and need different padding methods
         # first treat the audio inputs by simply returning torch tensors
         input_features = [{"input_features": feature["input_features"]} for feature in features]
+        
         batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
+        batch["input_features"] = batch["input_features"].to(torch.float16)
 
         # get the tokenized label sequences
         label_features = [{"input_ids": feature["labels"]} for feature in features]
@@ -442,7 +461,6 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             labels = labels[:, 1:]
 
         batch["labels"] = labels
-        batch["input_features"] = batch["input_features"].to(torch.float16)
 
         return batch
 data_collator = DataCollatorSpeechSeq2SeqWithPadding(
@@ -450,6 +468,15 @@ data_collator = DataCollatorSpeechSeq2SeqWithPadding(
     decoder_start_token_id=model.config.decoder_start_token_id,
 )
 import evaluate
+
+model.to(device)
+# Prepare the input batch
+
+
+# Decode the output
+
+
+
 
 metric = evaluate.load("wer")
 def compute_metrics(pred):
@@ -468,15 +495,15 @@ def compute_metrics(pred):
     return {"wer": wer}
 training_args = Seq2SeqTrainingArguments(
     output_dir="./whisper-small-hi",  # change to a repo name of your choice
-    per_device_train_batch_size=1,
-    gradient_accumulation_steps=16,  # increase by 2x for every 2x decrease in batch size
+    per_device_train_batch_size=16,
+    gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
-    max_steps=4000,#4000
-    dataloader_num_workers=1,
-    fp16=True,
+    max_steps=101,#4000
+    gradient_checkpointing=True,
+    fp16=False,
     eval_strategy="steps",
-    per_device_eval_batch_size=2,
+    per_device_eval_batch_size=8,
     predict_with_generate=True,
     generation_max_length=225,
     save_steps=100,
@@ -499,24 +526,19 @@ trainer = Seq2SeqTrainer(
     tokenizer=processor.feature_extractor,
 )
 processor.save_pretrained(training_args.output_dir)
-from memory_profiler import profile
-
-@profile
-def train_model():
-        trainer.train()
-
-#train_model()
+#trainer.train()
 
 
-# In[39]:
+# In[43]:
 
 
 # Chime Normalization of the results 
+'''
 model_path = "./whisper-small-hi/checkpoint-101"
 
 # Load the model from the safetensors file
 model = AutoModelForSpeechSeq2Seq.from_pretrained(model_path, from_tf=False, config=model_path + "/config.json")
-tokenizer = WhisperTokenizer.from_pretrained("openai/whisper-large-v3", task="transcribe", language="en")
+tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 # Load the tokenizer (if necessary)
 
 
@@ -554,11 +576,11 @@ print(inspect.signature(model))
 
 # Decode the output
 
+'''
 
 
 
-
-# In[40]:
+# In[46]:
 
 
 ## visualization of the layers 
@@ -594,7 +616,7 @@ from torch import optim
 
 
 
-# In[43]:
+# In[47]:
 
 
 import matplotlib.pyplot as plt
@@ -613,13 +635,13 @@ plt.ylabel('Frequency')
 plt.show()
 
 
-# In[44]:
+# In[ ]:
 
 
 print(dir(model))
 
 
-# In[45]:
+# In[48]:
 
 
 import meeteval
@@ -634,7 +656,7 @@ av = AlignmentVisualization(
 av.dump('viz.html')  # Create standalone HTML file
 
 
-# In[47]:
+# In[54]:
 
 
 import meeteval
@@ -676,7 +698,7 @@ print(expanded_df['wer'])
 
 
 from whisper.normalizers import EnglishTextNormalizer
-data = pd.read_csv('/home/niklas/dipco_eval.csv')
+data = pd.read_csv('dipco_dev.csv')
 normalizer = EnglishTextNormalizer()
 
 
@@ -736,7 +758,7 @@ wer = jiwer.wer(list(data["chime_ref2"]), list(data["chime_hyp2"]))
 print(f"WER2: {wer * 100:.2f} %")
 
 
-# In[48]:
+# In[55]:
 
 
 print(data.sample(n=10))
@@ -749,7 +771,7 @@ data['wer'] = data.apply(
 )
 
 
-# In[49]:
+# In[56]:
 
 
 ascii_pattern = r'^[\x00-\x7F]*$'
@@ -763,7 +785,7 @@ wer = jiwer.wer(list(df_ascii["reference_clean"]), list(df_ascii["hypothesis_cle
 print(f"WER: {wer * 100:.2f} %")
 
 
-# In[50]:
+# In[57]:
 
 
 # looking at the results from the individual sessions 
@@ -816,7 +838,7 @@ print(wer)
 
 
 
-# In[51]:
+# In[58]:
 
 
 # plot visualization of the different sessions and store the results
@@ -871,7 +893,7 @@ visualize_wer(grouped_mic, ["mic", f"{dataset_name}", f"{model_name}"])
 
 
 
-# In[52]:
+# In[ ]:
 
 
 error_rates = data['wer'].apply(lambda x: x.error_rate)
