@@ -95,7 +95,7 @@ import torch
 import matplotlib.pyplot as plt 
 import multiprocessing
 import inspect
-model_id = "openai/whisper-small"
+model_id = "openai/whisper-large-v3"
 feature_extractor = WhisperFeatureExtractor.from_pretrained(model_id, language='en')
 print(inspect.signature(feature_extractor))
 def expand_start_time(row):
@@ -195,7 +195,7 @@ def load_audio_segment(filepath, start_frame, end_frame):
 #print(expanded_df)
 #print(expanded_df.head(10))
 
-
+import copy
 def string_parsing(dataframe, path):
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
@@ -221,8 +221,10 @@ def string_parsing(dataframe, path):
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
-    dataframe_train = dataframe.query("session_id !=3").copy()
-    dataframe_test = dataframe.query('session_id ==3').copy()
+    test_session_id = "S04"
+    dataframe_train = copy.deepcopy(dataframe)
+
+    dataframe_test = copy.deepcopy(dataframe.query('session_id == @test_session_id'))
     dataframe_train.drop(columns=['endframe', 'session_id', 'speaker_id','gender', 'nativeness','mother_tongue','audio','start','end','endframe','duration','frames', 'ref'], inplace=True)
     dataframe_test.drop(columns=['endframe', 'session_id', 'speaker_id','gender', 'nativeness','mother_tongue','audio','start','end','endframe','duration','frames', 'ref'], inplace=True)
     dataframe_train.reset_index(drop=True, inplace=True)
@@ -230,8 +232,9 @@ def string_parsing(dataframe, path):
     return dataframe_train, dataframe_test 
 
 expanded_df,expanded_df_test = string_parsing(df,dev_path)
-eval_df,_ = string_parsing(eval_df, eval_path)
-print(eval_df.head(10))
+
+
+expanded_df= expanded_df.sample(frac=0.3, random_state=42)
 print('jo')
 
 
@@ -295,13 +298,13 @@ def Hug_dataset_creation(dfs, mode):
         
 
     
-train_dataset = Hug_dataset_creation(expanded_df, mode='train')    
-test_dataset = Hug_dataset_creation(expanded_df_test, mode='train')    
-eval_dataset = Hug_dataset_creation(eval_df, mode='eval')
+#train_dataset = Hug_dataset_creation(expanded_df, mode='train')
+#test_dataset = Hug_dataset_creation(expanded_df_test, mode='train')
+#eval_dataset = test_dataset
 
 
 #dataset = dataset.to_iterable_dataset()
-print(train_dataset[0])
+#print(train_dataset[0])
 import inspect
 print(inspect.signature(WhisperTokenizer))
 
@@ -327,10 +330,10 @@ def prepare_dataset(batch):
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
 
-train_dataset = train_dataset.map(prepare_dataset)
+#train_dataset = train_dataset.map(prepare_dataset)
 #train_dataset.save_to_disk("train3.hf")
-test_dataset = test_dataset.map(prepare_dataset)
-eval_dataset = eval_dataset.map(prepare_dataset)
+#test_dataset = test_dataset.map(prepare_dataset)
+#eval_dataset = eval_dataset.map(prepare_dataset)
 #eval_dataset.save_to_disk("eval3.hf")
 import datasets
 #train_dataset = datasets.load_from_disk('train3.hf')
@@ -373,7 +376,7 @@ def transcribe_audio_with_model(dataframe, dataset, pipe):
         dataframe.loc[idx,'results'] = result['text']
 
     return dataframe
-eval_df = eval_df.sample(frac=1, random_state=42).head(1000)
+#eval_df = eval_df.sample(frac=1, random_state=42).head(1000)
 #eval_df = transcribe_audio_with_model(eval_df, eval_dataset,pipe)
 from tqdm import tqdm 
 
@@ -399,7 +402,7 @@ def transcribe_audio(expanded_df):
     return expanded_df
 print(expanded_df.columns)
 expanded_df=transcribe_audio(expanded_df)
-expanded_df.to_csv('dipco_dev.csv', index=False)
+expanded_df.to_csv(f'dipco_dev_{model_id}.csv', index=False)
 expanded_df.to_csv('dipco_dev_small.csv', index=False)
 
 
