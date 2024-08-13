@@ -9,14 +9,49 @@ import typing
 #from functool import cache 
 from datasets import load_dataset, Dataset, IterableDataset
 from functools import reduce
-chime_path = "/home/niklas/Downloads/Datasets/CHIME6/CHiME6_eval/CHiME6/audio/eval"
-#dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 
+
+
+version = "vanilla"
+def dipco_paths(dataset_path): 
+       dev_path = os.path.join(dataset_path, 'audio/dev')
+       eval_path = os.path.join(dataset_path, 'audio/eval')
+       transcript_dev_path = os.path.join(dataset_path, 'transcriptions/dev')    
+       transcript_eval_path = os.path.join(dataset_path, 'transcriptions/eval')
+       return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path
+    
+def setup_paths(environment, dataset_name):
+    dataset_path = "/project/data_asr/dipco/Dipco"
+    if environment == 'cluster':
+        if dataset_name == "Chime6":
+            dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            return dipco_paths(dataset_path)
+            
+        else:
+           
+            return dipco_paths(dataset_path=dataset_path)
+    else:
+        if dataset_name == "Chime6":
+            dataset_path = "/home/niklas/Downloads/Master/espnet/egs2/chime7_task1/asr1/datasets/ChIME6/"
+            return dipco_paths(dataset_path)
+        else:
+            return dipco_paths(dataset_path=dataset_path)
+         
+        
+
+#dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
+chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+dataset_name = "Chime6"
+environment = "laptop"
 import os
 from datasets import Dataset, Audio
 import pandas as pd
-
-
+dataset_path,dev_path,eval_path,transcript_dev_path,transcript_eval_path = setup_paths(environment=environment, dataset_name=dataset_name)
+print(dataset_path)
+print(dev_path)
+print(eval_path)
+print(transcript_dev_path)
+print(transcript_eval_path)
 
 
 # In[ ]:
@@ -29,13 +64,7 @@ import re
 from typing import List
 import glob
 from datetime import datetime
-dipco_path = "/project/data_asr/dipco/Dipco"  
-dataset_name = "Dipco"
-dev_path = os.path.join(dipco_path, 'audio/dev')
-eval_path = os.path.join(dipco_path, 'audio/eval')
-transcript_dev_path = os.path.join(dipco_path, 'transcriptions/dev')
-transcript_eval_path = os.path.join(dipco_path, 'transcriptions/eval')
-version = "vanilla"
+
 
 
 def get_formated_date() -> str:
@@ -65,7 +94,7 @@ def list_json_files(directory):
 
 def load_and_concatenate_json_files(directory):
     json_files = list_json_files(directory)
-    
+    print(json_files)
     # List to hold individual DataFrames
     data_frames = []
     
@@ -79,7 +108,7 @@ def load_and_concatenate_json_files(directory):
     
     return combined_df
 
-
+print(transcript_dev_path)
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
 #df = pd.read_json(full_path)
@@ -101,7 +130,8 @@ import torch
 import matplotlib.pyplot as plt 
 import multiprocessing
 import inspect
-model_name = "openai/whisper-large"
+from datasets import Features, Value
+model_name = model_id = "openai/whisper-tiny.en"#"openai/whisper-large"
 feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 print(inspect.signature(feature_extractor))
 def expand_start_time(row):
@@ -120,7 +150,14 @@ def time_to_seconds(time_str):
     
     return h * 3600 + m * 60 + s
 
-
+def chime_get_seconds_from_time(time_obj):
+    # Extract hours, minutes, and seconds from the Timestamp object
+    h = time_obj.hour
+    m = time_obj.minute
+    s = time_obj.second
+    ms = time_obj.microsecond // 1000  
+    # Convert the time to seconds
+    return h * 3600 + m * 60 + s + ms/1000
 
 
 def get_corresponding_end_time(dict:dict, key:str):
@@ -139,6 +176,7 @@ def get_corresponding_end_time(dict:dict, key:str):
 # Function to generate microphone paths
 def generate_microphone_paths(row):
     paths = []
+       
     for i in range(1, 7):
         path = f"{dev_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
         paths.append(path)
@@ -148,7 +186,17 @@ def generate_microphone_paths(row):
     return paths
 
 
+def chime_generate_microphone_paths(row):
+    paths = []
+       
+    for i in range(1, 7):
+        path = f"{dev_path}/{row['session_id']}_{row['ref']}.CH{i}.wav"
+        paths.append(path)
 
+    path = f"{dev_path}/{row['session_id']}_{row['speaker']}.wav"
+    paths.append(path)
+    return paths
+    
 
 
 #change the seconds to frames
@@ -197,8 +245,30 @@ def load_audio_segment(filepath, start_frame, end_frame):
 #print(expanded_df)
 #print(expanded_df.head(10))
 
+def chime_parsing(dataframe):
+    dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
+    dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
+   
+    dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1)
+    dataframe['file_path'] = dataframe.apply(lambda row: row['file_path'][0], axis=1)
+    dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
+    dataframe['duration'] = dataframe.apply(lambda row: row['end'] - row['start'], axis=1)
+    if dataframe['frames'].isnull().any():
+        raise ValueError("The 'frames' column contains null values.")
+    if not dataframe['frames'].apply(validate_frames_column).all():
+        raise ValueError("Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
+    dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
+    print(dataframe.shape)
+    pprint.pp(dataframe.head(10))
+    dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
+    dataframe.drop(columns=['end_time','start_time','duration', 'frames', 'start','end', 'location','ref', 'endframe', 'session_id', 'speaker'], inplace=True)
+    dataframe.reset_index(drop=True, inplace=True)
+    return dataframe 
+        
+    
+    
 
-def string_parsing(dataframe):
+def dipco_parsing(dataframe):
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
@@ -224,6 +294,8 @@ def string_parsing(dataframe):
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     # handle chime and dipco data differently
+    #TODO
+    # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
     if 'nativeness' in dataframe.columns:
         dataframe.drop(columns=['endframe', 'session_id', 'speaker_id','gender', 'nativeness','mother_tongue','audio','start','end','endframe','duration','frames', 'ref'], inplace=True)
     else:
@@ -235,11 +307,25 @@ def string_parsing(dataframe):
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe 
 
-expanded_df = string_parsing(df)
-eval_df = string_parsing(eval_df)
+features = Features({
+    'file_path': Value('string'),
+    'words': Value('string'),
+     'startframe': Value('int64'),
+    'num_frames': Value('int64'),    
+})
+
+if dataset_name == 'Chime6':
+    expanded_df = chime_parsing(df)
+    eval_df = chime_parsing(eval_df)
+else:
+    expanded_df = dipco_parsing(df)
+    eval_df = dipco_parsing(eval_df)
+
+
+
 
     
-
+print(expanded_df.head(10))
 
 
 
@@ -251,7 +337,7 @@ eval_df = string_parsing(eval_df)
 # In[ ]:
 
 
-
+print(len(expanded_df['file_path'].head(1)))
 
 
 # In[ ]:
@@ -277,20 +363,14 @@ eval_df = string_parsing(eval_df)
 
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-from datasets import Features, Value
+
 from transformers import WhisperTokenizer
 from datasets import load_dataset
 device = "cuda" 
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-model_id = "openai/whisper-tiny"
-features = Features({
-    'file_path': Value('string'),
-    'words': Value('string'),
-     'startframe': Value('int64'),
-    'num_frames': Value('int64'),
-    
-    
-})
+model_id = model_name
+
+
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 def Hug_dataset_creation(expanded_df, mode):
     dataset = Dataset.from_pandas(expanded_df, features=features)
@@ -298,7 +378,7 @@ def Hug_dataset_creation(expanded_df, mode):
     if mode == 'train':
         return shuffled_dataset.select(range(100))
     else:
-          return shuffled_dataset.select(range(500))
+          return shuffled_dataset.select(range(100))
         
 
     
@@ -335,7 +415,8 @@ def prepare_dataset(batch):
     return batch
 
 train_dataset = train_dataset.map(prepare_dataset)
-eval_dataset = eval_dataset.map(prepare_dataset)
+#TODO
+eval_dataset = train_dataset
 train_dataset.save_to_disk("train.hf")
 eval_dataset.save_to_disk("eval.hf")
 import os
@@ -357,10 +438,7 @@ else:
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
 )
-model.generation_config.language = "English"
-model.generation_config.task = "transcribe"
 
-model.generation_config.forced_decoder_ids = None
 
 
 
@@ -368,7 +446,19 @@ model.generation_config.forced_decoder_ids = None
 # In[ ]:
 
 
-processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
+if ("openai/whisper-large") in model_id:
+    processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
+    model.generation_config.language = "English"
+    model.generation_config.task = "transcribe"
+
+   
+
+else:
+    processor = AutoProcessor.from_pretrained(model_id)
+    
+model.generation_config.forced_decoder_ids = None
+
+
 
 pipe = pipeline(
     "automatic-speech-recognition",
@@ -380,6 +470,7 @@ pipe = pipeline(
     batch_size=16,
     return_timestamps=True,
     torch_dtype=torch_dtype,
+    device=device
 
  
 )
@@ -399,7 +490,13 @@ def transcribe_audio(expanded_df):
         audio,_ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i], num_frames=expanded_df['num_frames'][i])
         audio_data = audio.squeeze().numpy()
         print(audio_data.shape)
-        result = pipe(audio_data, generate_kwargs={"language": "english"})
+        if ("openai/whisper-large") in model_id:
+               result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+            
+            
+     
 
        
         expanded_df.loc[i,'results'] = result['text']
@@ -706,7 +803,7 @@ model_path = "./whisper-small-hi/checkpoint-101"
 
 # Load the model from the safetensors file
 model = AutoModelForSpeechSeq2Seq.from_pretrained(model_path, from_tf=False, config=model_path + "/config.json")
-tokenizer = WhisperTokenizer.from_pretrained("openai/whisper-large-v3", task="transcribe", language="en")
+tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 # Load the tokenizer (if necessary)
 
 
