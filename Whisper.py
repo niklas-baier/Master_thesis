@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[35]:
+# In[ ]:
 
 
 import os
@@ -19,7 +19,7 @@ import inspect
 from datasets import load_from_disk
 
 
-# In[36]:
+# In[ ]:
 
 
 import os  
@@ -85,7 +85,7 @@ print(df['start_time'].head(1))
 
 
 
-# In[37]:
+# In[ ]:
 
 
 from transformers import WhisperFeatureExtractor
@@ -239,31 +239,31 @@ eval_df = string_parsing(eval_df, eval_path)
 
 
 
-# In[37]:
+# In[ ]:
 
 
 
 
 
-# In[37]:
+# In[ ]:
 
 
 
 
 
-# In[37]:
+# In[ ]:
 
 
 
 
 
-# In[37]:
+# In[ ]:
 
 
 
 
 
-# In[38]:
+# In[ ]:
 
 
 import torch
@@ -358,7 +358,7 @@ model.to(device)
 
 
 
-# In[39]:
+# In[ ]:
 
 
 processor = AutoProcessor.from_pretrained(model_id, language='en')
@@ -423,7 +423,7 @@ expanded_df.to_csv('dipco_dev.csv', index=False)
 # result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
 
 
-# In[45]:
+# In[ ]:
 
 
 # training of the model 
@@ -529,7 +529,7 @@ processor.save_pretrained(training_args.output_dir)
 #trainer.train()
 
 
-# In[43]:
+# In[ ]:
 
 
 # Chime Normalization of the results 
@@ -580,7 +580,7 @@ print(inspect.signature(model))
 
 
 
-# In[46]:
+# In[ ]:
 
 
 ## visualization of the layers 
@@ -616,7 +616,7 @@ from torch import optim
 
 
 
-# In[47]:
+# In[ ]:
 
 
 import matplotlib.pyplot as plt
@@ -641,7 +641,7 @@ plt.show()
 print(dir(model))
 
 
-# In[48]:
+# In[ ]:
 
 
 import meeteval
@@ -656,7 +656,7 @@ av = AlignmentVisualization(
 av.dump('viz.html')  # Create standalone HTML file
 
 
-# In[54]:
+# In[ ]:
 
 
 import meeteval
@@ -758,7 +758,7 @@ wer = jiwer.wer(list(data["chime_ref2"]), list(data["chime_hyp2"]))
 print(f"WER2: {wer * 100:.2f} %")
 
 
-# In[55]:
+# In[ ]:
 
 
 print(data.sample(n=10))
@@ -771,7 +771,7 @@ data['wer'] = data.apply(
 )
 
 
-# In[56]:
+# In[ ]:
 
 
 ascii_pattern = r'^[\x00-\x7F]*$'
@@ -785,7 +785,7 @@ wer = jiwer.wer(list(df_ascii["reference_clean"]), list(df_ascii["hypothesis_cle
 print(f"WER: {wer * 100:.2f} %")
 
 
-# In[57]:
+# In[ ]:
 
 
 # looking at the results from the individual sessions 
@@ -838,7 +838,7 @@ print(wer)
 
 
 
-# In[58]:
+# In[ ]:
 
 
 # plot visualization of the different sessions and store the results
