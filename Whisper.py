@@ -11,7 +11,7 @@ from datasets import load_dataset, Dataset, IterableDataset
 from functools import reduce
 
 
-
+train_state = 'NT'
 version = "vanilla"
 def dipco_paths(dataset_path): 
        dev_path = os.path.join(dataset_path, 'audio/dev')
@@ -446,6 +446,36 @@ model = AutoModelForSpeechSeq2Seq.from_pretrained(
 # In[ ]:
 
 
+import warnings
+from tqdm import tqdm
+import warnings
+from functools import wraps
+import time
+
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"Execution time: {end_time - start_time} seconds")
+        return result
+    return wrapper
+
+
+
+# Define a decorator to suppress specific warnings
+def suppress_specific_warnings(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)  # Suppress FutureWarning
+            return func(*args, **kwargs)
+    return wrapper
+
+
+# In[ ]:
+
+
 if ("openai/whisper-large") in model_id:
     processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
     model.generation_config.language = "English"
@@ -482,6 +512,10 @@ expanded_df = expanded_df.head(10)
 expanded_df.reset_index(drop=True, inplace=True)
 print(expanded_df.shape)
 # load audio and pad/trim it to fit 30 seconds
+from numba import jit
+
+@suppress_specific_warnings
+@timing_decorator
 
 def transcribe_audio(expanded_df):
     
@@ -503,9 +537,38 @@ def transcribe_audio(expanded_df):
     
     
     return expanded_df
+
+def transcribe_dataset(dataset):
+    
+    for i in tqdm(range(expanded_df.shape[0])):
+        #audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio,_ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i], num_frames=expanded_df['num_frames'][i])
+        audio_data = audio.squeeze().numpy()
+        print(audio_data.shape)
+        if ("openai/whisper-large") in model_id:
+               result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+            
+            
+     
+
+       
+        expanded_df.loc[i,'results'] = result['text']
+    
+    
+    return expanded_df
 print(expanded_df.columns)
 expanded_df=transcribe_audio(expanded_df)
-expanded_df.to_csv('dipco_dev.csv', index=False)
+dev = "dev"
+
+import re
+
+# Regex pattern splits on substrings "; " and ", "
+components = re.split('-|/|', model_id)
+model_size = components[2]
+transcription_csv_path = f'{dataset_name}_{dev}_{model_size[:4]}_{train_state}.csv'
+expanded_df.to_csv(transcription_csv_path, index=False)
 
 #cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
 
@@ -513,6 +576,53 @@ expanded_df.to_csv('dipco_dev.csv', index=False)
 #cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
 
 # result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
+
+
+# In[ ]:
+
+
+"""@suppress_specific_warnings
+@timing_decorator
+def transcribe_audio_ds(dataset: Dataset, batch_size=8):
+    results = []
+
+    for i in tqdm(range(0, len(dataset), batch_size)):
+        batch = dataset.select(range(i, min(i + batch_size, len(dataset))))
+        
+        for example in batch:
+            audio, _ = torchaudio.load(
+                example['file_path'], 
+                frame_offset=example['startframe'], 
+                num_frames=example['num_frames']
+            )
+            audio_data = audio.squeeze().numpy()
+            
+            if "openai/whisper-large" in model_id:
+                result = pipe(audio_data, generate_kwargs={"language": "english"})
+            else:
+                result = pipe(audio_data)
+            
+            # Collect result for each item in the batch
+            results.append(result['text'])
+
+    # Add results to the dataset
+    
+    dataset = dataset.add_column("results", results)
+    return dataset
+
+# Example usage
+# Assuming you have a Hugging Face dataset `ds` with columns 'file_path', 'startframe', and 'num_frames'
+#expanded_df.drop(columns=['results'], inplace=True)
+print(expanded_df.columns)
+
+ds = Dataset.from_pandas(expanded_df)
+ds = transcribe_audio_ds(ds)"""
+
+
+# In[ ]:
+
+
+
 
 
 # In[ ]:
@@ -724,13 +834,48 @@ trainer = Seq2SeqTrainer(
 )
 processor.save_pretrained(training_args.output_dir)
 
-trainer.train()
 
 # Print evaluation results
+def plot_loss(trainer):
+    df_log = pd.DataFrame(trainer.state.log_history)
+# visualization of the loss during training 
+    (df_log.dropna(subset=["eval_loss"]).reset_index()["eval_loss"].plot(label="Validation"))
+    df_log.dropna(subset=["loss"]).reset_index()["loss"].plot(label="Train")
+    plt.xlabel("Epochs")
+    plt.legend(loc="upper right")
+    
+    filepath = f'Figures/Training/LOSS/{dataset_name}/{model_id}/{version}/{get_formated_date()}'
+    try:
+        os.makedirs(filepath)
+    except FileExistsError:
+        print("Directory already exists")
+    finally:
+        plt.savefig(filepath + "1", format='png')
+        
+def plot_WER(trainer):
+    #print evaluation of WER over training 
+    df_log = pd.DataFrame(trainer.state.log_history)
+    # visualization of the loss during training 
+    (df_log.dropna(subset=["eval_wer"]).reset_index()["eval_wer"].plot(label="WER"))
+    plt.xlabel("Epochs")
+    plt.ylabel("WER")
+    plt.legend(loc="upper right")
+    
+    min_eval_wer = df_log['eval_wer'].min()
+    def format_wer(wer):
+        wer_str = f"{wer:.3f}"  # Format the WER to three decimal places
+        return wer_str.replace(".", "_")
+    min_eval_wer_str = format_wer(min_eval_wer)
+    filepath = f'Figures/Training/WER/{dataset_name}/{min_eval_wer_str}/{model_id}/{version}/{get_formated_date()}'
+    
+    try:
+        os.makedirs(filepath)
+    except FileExistsError:
+        print("Directory already exists")
+    finally:
+        plt.savefig(f'{filepath}/test.png', format='png')
+    
 
-
-
-# Save evaluation results to a JSON file
 
     
 
@@ -738,23 +883,15 @@ trainer.train()
 # In[ ]:
 
 
-df_log = pd.DataFrame(trainer.state.log_history)
-# visualization of the loss during training 
-(df_log.dropna(subset=["eval_loss"]).reset_index()["eval_loss"]
-.plot(label="Validation"))
-df_log.dropna(subset=["loss"]).reset_index()["loss"].plot(label="Train")
+if train_state == 'NT':
+    pass
+else:
+    trainer.train()
+    plot_loss(trainer)
+    plot_WER(trainer)
 
-plt.xlabel("Epochs")
-plt.legend(loc="upper right")
 
-filepath = f'Figures/Training/LOSS/{dataset_name}/{model_id}/{version}/{get_formated_date()}'
-try:
-    os.makedirs(filepath)
-except FileExistsError:
-    print("Directory already exists")
-finally:
-    plt.savefig(filepath + "1", format='png')
-    
+
 
 
 
@@ -762,37 +899,7 @@ finally:
 # In[ ]:
 
 
-#print evaluation of WER over training 
-df_log = pd.DataFrame(trainer.state.log_history)
-# visualization of the loss during training 
-(df_log.dropna(subset=["eval_wer"]).reset_index()["eval_wer"].plot(label="WER"))
-plt.xlabel("Epochs")
-plt.ylabel("WER")
-plt.legend(loc="upper right")
 
-min_eval_wer = df_log['eval_wer'].min()
-def format_wer(wer):
-  """Formats a WER value as a string with the decimal point replaced by an underscore.
-
-  Args:
-    wer: The WER value as a float.
-
-  Returns:
-    The formatted WER as a string.
-  """
-
-  wer_str = f"{wer:.3f}"  # Format the WER to three decimal places
-  return wer_str.replace(".", "_")
-min_eval_wer_str = format_wer(min_eval_wer)
-filepath = f'Figures/Training/WER/{dataset_name}/{min_eval_wer_str}/{model_id}/{version}/{get_formated_date()}'
-
-try:
-    os.makedirs(filepath)
-except FileExistsError:
-    print("Directory already exists")
-finally:
-    plt.savefig(f'{filepath}/test.png', format='png')
-    
 
 
 # In[ ]:
@@ -802,7 +909,7 @@ finally:
 model_path = "./whisper-small-hi/checkpoint-101"
 
 # Load the model from the safetensors file
-model = AutoModelForSpeechSeq2Seq.from_pretrained(model_path, from_tf=False, config=model_path + "/config.json")
+
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 # Load the tokenizer (if necessary)
 
@@ -810,8 +917,6 @@ tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", langua
 
 # Example input
 print(expanded_df.columns)
-
-
 ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
 from tqdm import tqdm
 
@@ -849,14 +954,11 @@ print(inspect.signature(model))
 
 
 ## visualization of the layers 
-import torch.nn as nn 
-print([module for module in model.modules() if not isinstance(module, nn.Sequential)])
 
-name_of_part_to_train = 'encoder'
-part_to_train = getattr(model, name_of_part_to_train, None)
 
-#for param in part_to_train.parameters():
-  #  print(type(param))
+
+# In[ ]:
+
 
 
 
@@ -864,13 +966,6 @@ part_to_train = getattr(model, name_of_part_to_train, None)
 # In[ ]:
 
 
-#freezing parameters of the encoder
-
-
-# In[ ]:
-
-
-from torch import optim
 
 
 
@@ -885,19 +980,20 @@ from torch import optim
 
 
 import matplotlib.pyplot as plt
-print(expanded_df.columns)
-expanded_df['frame_diff'] = expanded_df['num_frames'] 
-print(expanded_df['num_frames'].nsmallest(20))
-filtered_df = expanded_df[expanded_df['frame_diff'] < 0]
-print(filtered_df)
-# Plot the histogram with 20 bins
-plt.hist(expanded_df['frame_diff'], bins=20, edgecolor='black')
-plt.title('Histogram of Frame Differences')
-plt.xlabel('Frame Difference (num_frames')
-plt.ylabel('Frequency')
 
-# Show the plot
-plt.show()
+
+def visualize_frames():
+    print(expanded_df.columns)
+    expanded_df['frame_diff'] = expanded_df['num_frames'] 
+    print(expanded_df['num_frames'].nsmallest(20))
+    filtered_df = expanded_df[expanded_df['frame_diff'] < 0]
+    print(filtered_df)
+    # Plot the histogram with 20 bins
+    plt.hist(expanded_df['frame_diff'], bins=20, edgecolor='black')
+    plt.title('Histogram of Frame Differences')
+    plt.xlabel('Frame Difference (num_frames')
+    plt.ylabel('Frequency')
+    
 
 
 # In[ ]:
@@ -963,7 +1059,7 @@ print(expanded_df['wer'])
 
 
 from whisper.normalizers import EnglishTextNormalizer
-data = pd.read_csv('/home/niklas/dipco_eval.csv')
+data = pd.read_csv(transcription_csv_path)
 normalizer = EnglishTextNormalizer()
 
 
@@ -1175,30 +1271,33 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-# Define email sender and receiver
-email_sender = 'uhicv@student.kit.edu'
-email_password = '***REMOVED***'
-email_receiver = 'uhicv@student.kit.edu'
 
-# Set the subject and body of the email
-subject = 'Test has finished'
-body = """
-I've just published a new video on YouTube: https://youtu.be/2cZzP9DLlkg
-"""
-
-em = EmailMessage()
-em['From'] = email_sender
-em['To'] = email_receiver
-em['Subject'] = subject
-em.set_content(body)
-
-# Add SSL (layer of security)
-context = ssl.create_default_context()
-
-# Log in and send the email
-with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
-    smtp.login(email_sender, email_password)
-    smtp.sendmail(email_sender, email_receiver, em.as_string())
+def send_email():
+    # Define email sender and receiver
+    email_sender = 'uhicv@student.kit.edu'
+    email_password = '***REMOVED***'
+    email_receiver = 'uhicv@student.kit.edu'
+    
+    # Set the subject and body of the email
+    subject = 'Test has finished'
+    body = """
+    I've just published a new video on YouTube: https://youtu.be/2cZzP9DLlkg
+    """
+    
+    em = EmailMessage()
+    em['From'] = email_sender
+    em['To'] = email_receiver
+    em['Subject'] = subject
+    em.set_content(body)
+    
+    # Add SSL (layer of security)
+    context = ssl.create_default_context()
+    
+    # Log in and send the email
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
+        smtp.login(email_sender, email_password)
+        smtp.sendmail(email_sender, email_receiver, em.as_string())
+    
 
 
 # In[ ]:
