@@ -16,15 +16,15 @@ from train import RunDetails
 from notification import send_email
 train_state = 'T' #["T","NT"]
 version = "vanilla" #["vanilla","peft"]
-task = 'classification' #["classification","joint","transcribe"]
+task = 'transcribe' #["classification","joint","transcribe"]
 
 
 #dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "Chime6" #["Chime6", "dipco"]
+dataset_name = "dipco" #["Chime6", "dipco"]
 environment = "laptop" #["laptop","cluster"]
 device = "cuda" #["cuda"]
-model_name = model_id = "openai/whisper-tiny"#"openai/whisper-large"
+model_name = model_id = "openai/whisper-tiny.en"#"openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path,dev_path,eval_path,transcript_dev_path,transcript_eval_path = setup_paths(environment=environment, dataset_name=dataset_name)
 
@@ -74,7 +74,8 @@ print(inspect.signature(feature_extractor))
 #expanded_df = expanded_df.drop(expanded_df['audio']=='close-talk')
 
 features = preprocessing.generate_features(run_details)
-print(features)
+
+
 if dataset_name == 'Chime6':
     expanded_df = chime_parsing(df,run_details)
     eval_df = chime_parsing(eval_df,run_details)

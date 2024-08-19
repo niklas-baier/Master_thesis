@@ -23,7 +23,7 @@ def setup_paths(environment, dataset_name):
     dataset_path = "/project/data_asr/dipco/Dipco"
     if environment == 'cluster':
         if dataset_name == "Chime6":
-            dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
             return dipco_paths(dataset_path)
 
         else:
@@ -229,6 +229,7 @@ def dipco_parsing(dataframe, run_details):
     print(dataframe.shape)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
+    dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
     # handle chime and dipco data differently
     # TODO
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
@@ -238,7 +239,7 @@ def dipco_parsing(dataframe, run_details):
                      'end', 'endframe', 'duration', 'frames', 'ref', 'words'], inplace=True) # don't drop the speaker ID but drop words
     else:
         dataframe.drop(
-            columns=['endframe', 'session_id', 'speaker_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
+            columns=['endframe', 'session_id', 'speaker', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
                      'end', 'endframe', 'duration', 'frames', 'ref'], inplace=True)
 
     dataframe.reset_index(drop=True, inplace=True)
@@ -249,17 +250,13 @@ def generate_features(run_details):
                 'startframe': Value('int64'),
                 'num_frames': Value('int64')}
     if run_details.task == 'classification':
-        if run_details.dataset_name == 'chime6':
-            basic_features['speaker']= Value('string'),
-            return basic_features
-        else:
-            basic_features['speaker'] = Value('string'),
-            return basic_features
+        basic_features['speaker'] = Value('string'),
+        return Features(basic_features)
     elif run_details.task == 'joint':
-        pass
+        return Features(basic_features) # TODO
     else:
         basic_features['words'] = Value('string')
-        return basic_features
+        return Features(basic_features)
 
 
 
