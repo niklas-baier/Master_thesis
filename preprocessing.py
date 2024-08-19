@@ -192,7 +192,7 @@ def chime_parsing(dataframe, run_details):
     if run_details.task == 'classification':
         dataframe.drop(
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
-                     'session_id'], inplace=True) # don't drop the speaker
+                     'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
     else:
         dataframe.drop(
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
@@ -235,7 +235,7 @@ def dipco_parsing(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
             columns=['endframe', 'session_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
-                     'end', 'endframe', 'duration', 'frames', 'ref'], inplace=True) # don't drop the speaker ID
+                     'end', 'endframe', 'duration', 'frames', 'ref', 'words'], inplace=True) # don't drop the speaker ID but drop words
     else:
         dataframe.drop(
             columns=['endframe', 'session_id', 'speaker_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
