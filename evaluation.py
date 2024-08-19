@@ -4,9 +4,9 @@ from jiwer.transforms import RemoveKaldiNonWords
 from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
 import json
 import os
-
+import numpy as np
 from preprocessing import get_formated_date
-
+import evaluate
 
 def chime_normalisation(input:str) -> str:
     jiwer_chime6_scoring = jiwer.Compose(
@@ -90,6 +90,12 @@ def compute_chime_metrics(pred):
     wer = jiwer.wer(list(chime_normalized_prediction), list(chime_normalized_reference))
 
     return {"wer": wer}
+
+
+def compute_classification_metrics(pred):
+    predictions = np.argmax(pred.predictions, axis=1)
+    metric = evaluate.load("accuracy")
+    return metric.compute(predictions=predictions, references=pred.label_ids)
 
 
 import meeteval

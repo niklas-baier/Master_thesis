@@ -8,22 +8,29 @@ from peftModification import create_peft_model
 from preprocessing import setup_paths, load_and_concatenate_json_files, chime_parsing, dipco_parsing, \
     Hug_dataset_creation, prepare_dataset
 from evaluation import compute_chime_metrics, chime_normalisation
+from test_Whisper import suppress_specific_warnings, timing_decorator, run_details_valid
 from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, extract_session, extract_location, \
     print_wer
-from transformers import WhisperTokenizer
+from transformers import WhisperTokenizer, AutoModelForAudioClassification
+from train import RunDetails
 from notification import send_email
-train_state = 'T'
-version = "vanilla"
-
+train_state = 'T' #["T","NT"]
+version = "vanilla" #["vanilla","peft"]
+task = 'classification' #["classification","joint","transcribe"]
 
 
 #dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "Chime6"
-environment = "laptop"
-device = "cuda"
+dataset_name = "Chime6" #["Chime6", "dipco"]
+environment = "laptop" #["laptop","cluster"]
+device = "cuda" #["cuda"]
+model_name = model_id = "openai/whisper-tiny"#"openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path,dev_path,eval_path,transcript_dev_path,transcript_eval_path = setup_paths(environment=environment, dataset_name=dataset_name)
+
+run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
+                         train_state=train_state, date=formated_date, version=version, device=device, task=task)
+assert run_details_valid(run_details)
 print(dataset_path)
 print(dev_path)
 print(eval_path)
@@ -41,12 +48,12 @@ from train import RunDetails, trained_model_transcription
 print(transcript_dev_path)
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
-#df = pd.read_json(full_path)
+
 transcriptions = df['words']
 
 print(df.columns)
 print(df['start_time'].head(1))
-#print(full_path)
+
 
 
 
@@ -57,7 +64,7 @@ from transformers import WhisperFeatureExtractor
 
 import inspect
 from datasets import Features, Value
-model_name = model_id = "openai/whisper-tiny.en"#"openai/whisper-large"
+
 feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 print(inspect.signature(feature_extractor))
 
@@ -66,25 +73,15 @@ print(inspect.signature(feature_extractor))
 
 #expanded_df = expanded_df.drop(expanded_df['audio']=='close-talk')
 
-
-# U01 - U05 & CH 1 - 7 
-
-# Function to generate microphone paths
-
-features = Features({
-    'file_path': Value('string'),
-    'words': Value('string'),
-     'startframe': Value('int64'),
-    'num_frames': Value('int64'),    
-})
-
+features = preprocessing.generate_features(run_details)
+print(features)
 if dataset_name == 'Chime6':
-    expanded_df = chime_parsing(df)
-    eval_df = chime_parsing(eval_df)
-    print("HELLLO")
+    expanded_df = chime_parsing(df,run_details)
+    eval_df = chime_parsing(eval_df,run_details)
+
 else:
-    expanded_df = dipco_parsing(df)
-    eval_df = dipco_parsing(eval_df)
+    expanded_df = dipco_parsing(df,run_details)
+    eval_df = dipco_parsing(eval_df,run_details)
 
 
 
@@ -158,32 +155,6 @@ model = WhisperForConditionalGeneration.from_pretrained(
 
 # In[ ]:
 
-
-import warnings
-from tqdm import tqdm
-import warnings
-from functools import wraps
-import time
-
-def timing_decorator(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        print(f"Execution time: {end_time - start_time} seconds")
-        return result
-    return wrapper
-
-
-
-# Define a decorator to suppress specific warnings
-def suppress_specific_warnings(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)  # Suppress FutureWarning
-            return func(*args, **kwargs)
-    return wrapper
 
 
 # In[ ]:
@@ -394,10 +365,23 @@ data_collator = DataCollatorSpeechSeq2SeqWithPadding(
 
 import evaluate
 metric = evaluate.load("wer")
-# 
+
+if task == 'classification':
+    metric = evaluate.load("accuracy")
+    dataset = dataset.select_columns('filepath')
+    label2id, id2label = dict(), dict()
+    labels = dataset["train"].features["label"].names
+    for i, label in enumerate(labels):
+        label2id[label] = str(i)
+        id2label[str(i)] = label
+
+    model = model = AutoModelForAudioClassification.from_pretrained(
+    model_id, num_labels=num_labels, label2id=label2id, id2label=id2label,
+
+)
 
 training_args = Seq2SeqTrainingArguments(
-    output_dir=f'trained_models/{dataset_name}/{version}/{model_id}',
+    output_dir=f'trained_models/{task}/{dataset_name}/{version}/{model_id}',
     per_device_train_batch_size=16,
     gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
@@ -439,10 +423,9 @@ if train_state == 'NT':
     pass
 else:
     trainer.train()
-    Run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
-                             train_state=train_state,date=formated_date, version=version, device=device)
+
     plot_loss(trainer)
-    plot_WER(trainer,Run_details=Run_details)
+    plot_WER(trainer,Run_details=run_details)
 # In[ ]:
 
 

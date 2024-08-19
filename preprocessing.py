@@ -172,7 +172,7 @@ print(count_df)"""
 # print(expanded_df)
 # print(expanded_df.head(10))
 
-def chime_parsing(dataframe):
+def chime_parsing(dataframe, run_details):
     dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
     dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
 
@@ -189,14 +189,21 @@ def chime_parsing(dataframe):
     print(dataframe.shape)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
-    dataframe.drop(
-        columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
-                 'session_id', 'speaker'], inplace=True)
+    if run_details.task == 'classification':
+        dataframe.drop(
+            columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
+                     'session_id'], inplace=True) # don't drop the speaker
+    else:
+        dataframe.drop(
+            columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
+                     'session_id', 'speaker'], inplace=True)
+
+
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe
 
 
-def dipco_parsing(dataframe):
+def dipco_parsing(dataframe, run_details):
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
@@ -225,15 +232,35 @@ def dipco_parsing(dataframe):
     # handle chime and dipco data differently
     # TODO
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
-    if 'nativeness' in dataframe.columns:
+    if run_details.task =='classification':
+        dataframe.drop(
+            columns=['endframe', 'session_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
+                     'end', 'endframe', 'duration', 'frames', 'ref'], inplace=True) # don't drop the speaker ID
+    else:
         dataframe.drop(
             columns=['endframe', 'session_id', 'speaker_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
                      'end', 'endframe', 'duration', 'frames', 'ref'], inplace=True)
-    else:
-        dataframe.drop(columns=['end_time', 'start_time'], inplace=True)
 
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe
+
+def generate_features(run_details):
+    basic_features = {'file_path': Value('string'),
+                'startframe': Value('int64'),
+                'num_frames': Value('int64')}
+    if run_details.task == 'classification':
+        if run_details.dataset_name == 'chime6':
+            basic_features['speaker']= Value('string'),
+            return basic_features
+        else:
+            basic_features['speaker'] = Value('string'),
+            return basic_features
+    elif run_details.task == 'joint':
+        pass
+    else:
+        basic_features['words'] = Value('string')
+        return basic_features
+
 
 
 def Hug_dataset_creation(expanded_df, mode,features):
