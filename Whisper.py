@@ -11,7 +11,7 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
     print_wer
 from transformers import WhisperTokenizer
 from notification import send_email
-train_state = 'NT'
+train_state = 'T'
 version = "vanilla"
 
 
@@ -21,7 +21,7 @@ chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset
 dataset_name = "Chime6"
 environment = "laptop"
 device = "cuda"
-
+formated_date = preprocessing.get_formated_date()
 dataset_path,dev_path,eval_path,transcript_dev_path,transcript_eval_path = setup_paths(environment=environment, dataset_name=dataset_name)
 print(dataset_path)
 print(dev_path)
@@ -57,7 +57,7 @@ from transformers import WhisperFeatureExtractor
 
 import inspect
 from datasets import Features, Value
-model_name = model_id = "openai/whisper-large"#"openai/whisper-large"
+model_name = model_id = "openai/whisper-tiny.en"#"openai/whisper-large"
 feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 print(inspect.signature(feature_extractor))
 
@@ -81,6 +81,7 @@ features = Features({
 if dataset_name == 'Chime6':
     expanded_df = chime_parsing(df)
     eval_df = chime_parsing(eval_df)
+    print("HELLLO")
 else:
     expanded_df = dipco_parsing(df)
     eval_df = dipco_parsing(eval_df)
@@ -105,6 +106,9 @@ from datasets import load_dataset
 
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 model_id = model_name
+
+from transformers import AutoConfig
+print(AutoConfig.from_pretrained(model_id))
 
 
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
@@ -143,6 +147,7 @@ if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
         print(f"error while loading the dataset: {e}")
 else:
     print(f"The directory '{dataset_path}' does not exist or is not a directory.")
+
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
 )
@@ -182,12 +187,14 @@ def suppress_specific_warnings(func):
 
 
 # In[ ]:
+processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
 
 
-if ("openai/whisper-large") in model_id:
+if ("large") in model_id:
     processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
     model.generation_config.language = "English"
     model.generation_config.task = "transcribe"
+
 
    
 
@@ -465,7 +472,7 @@ if train_state == 'NT':
 else:
     trainer.train()
     Run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
-                             train_state=train_state,datetime=preprocessing.get_formated_date(), version=version)
+                             train_state=train_state,date=formated_date, version=version)
     plot_loss(trainer)
     plot_WER(trainer,Run_details=Run_details)
 # In[ ]:
@@ -615,7 +622,7 @@ error_rates = data['wer'].apply(lambda x: x.error_rate)
 mean_error_rate = error_rates.mean()
 print(mean_error_rate)
 
-
+raise ValueError()
 from huggingface_hub import notebook_login
 #***REMOVED***
 #notebook_login()

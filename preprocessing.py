@@ -1,6 +1,6 @@
 import os
 import glob
-import datetime
+from datetime import datetime
 import re
 import pandas as pd
 import torchaudio
