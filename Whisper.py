@@ -3,6 +3,7 @@
 import meeteval
 
 import preprocessing
+from peftModification import create_peft_model
 # In[ ]:
 from preprocessing import setup_paths, load_and_concatenate_json_files, chime_parsing, dipco_parsing, \
     Hug_dataset_creation, prepare_dataset
@@ -35,8 +36,7 @@ print(transcript_eval_path)
 
 import pandas as pd 
 import torchaudio
-from train import RunDetails
-
+from train import RunDetails, trained_model_transcription
 
 print(transcript_dev_path)
 df = load_and_concatenate_json_files(transcript_dev_path)
@@ -104,7 +104,7 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from transformers import WhisperTokenizer
 from datasets import load_dataset
 
-torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
 model_id = model_name
 
 from transformers import AutoConfig
@@ -345,40 +345,8 @@ import jiwer
 
 
 # peft 
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, TaskType
-# Define LoRA Config
-# Print out all the module names in the model
-import bitsandbytes as bnb 
-for param in model.parameters():
-  param.requires_grad = False  # freeze the model - train adapters later
-  if param.ndim == 1:
-    # cast the small parameters (e.g. layernorm) to fp32 for stability
-    param.data = param.data.to(torch.float32)
-
-model.gradient_checkpointing_enable()  # reduce number of stored activations
-model.enable_input_require_grads()
-
-
-for name, module in model.named_modules():
-    print(name)
-linear_modules = [name for name, module in model.named_modules() if isinstance(module, torch.nn.Linear)]
-target_modules = [name for name in linear_modules if name.startswith('model.encoder.layers')]
-# lowering alpha seems to be helpful when training although keeping r significantly higher than alpha does not seem to work either.
-text_lora_config = LoraConfig(
-    r=2,
-    lora_alpha=2,
-    init_lora_weights="gaussian",
-    target_modules=["q_proj",  "v_proj", "k_proj","out_proj"],
-    bias="none",
-    task_type="Seq2Seq",
-)
-# prepare int-8 model for training
-model = prepare_model_for_kbit_training(model)
-print ([module for module in model.modules()])
-# add LoRA adaptor
-model = get_peft_model(model, text_lora_config)
-model.print_trainable_parameters()
-
+if version == 'peft':
+    model = create_peft_model(model)
 
 # In[ ]:
 
@@ -429,7 +397,7 @@ metric = evaluate.load("wer")
 # 
 
 training_args = Seq2SeqTrainingArguments(
-    output_dir="./whisper-small-hi",  # change to a repo name of your choice
+    output_dir=f'trained_models/{dataset_name}/{version}/{model_id}',
     per_device_train_batch_size=16,
     gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
@@ -472,7 +440,7 @@ if train_state == 'NT':
 else:
     trainer.train()
     Run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
-                             train_state=train_state,date=formated_date, version=version)
+                             train_state=train_state,date=formated_date, version=version, device=device)
     plot_loss(trainer)
     plot_WER(trainer,Run_details=Run_details)
 # In[ ]:
@@ -482,36 +450,7 @@ else:
 model_path = "./whisper-small-hi/checkpoint-101"
 
 # Load the model from the safetensors file
-
-tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
-# Load the tokenizer (if necessary)
-
-
-# Example input
-print(expanded_df.columns)
-ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-from tqdm import tqdm
-
-
-
-# Iterate over the dataset with progress tracking
-eval_temp = pd.DataFrame(columns=['results_trained'])
-for i, example in tqdm(enumerate(eval_dataset), total=len(eval_dataset)):
-    sample = ds[0]["audio"]
-    input_features = processor(sample["array"], sampling_rate=sample["sampling_rate"], return_tensors="pt").input_features
-    input_features = input_features.to(device)
-    outputs = model.generate(input_features)
-    transcription = processor.batch_decode(outputs, skip_special_tokens=True)
-   
-    eval_temp.loc[i, "results_trained"]= transcription
-    
-
-
-   
-
-   
-    
-
+#transcriptions = trained_model_transcription(model=model, eval_dataset=eval_dataset, Run_details=Run_details)
 
 
 print(inspect.signature(model))
