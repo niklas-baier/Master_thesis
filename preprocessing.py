@@ -244,6 +244,8 @@ def dipco_parsing(dataframe, run_details, mode_path):
     train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, run_details=run_details)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
+    train_dataframe.reset_index(drop=True, inplace=True)
+    test_dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
         return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
     else:
@@ -257,6 +259,7 @@ def train_test_split(dataframe, run_details):
     # Step 3: Separate the DataFrame based on the session_id
     df_same_session = dataframe[dataframe['session_id'] == sampled_session_id]
     df_different_session = dataframe[dataframe['session_id'] != sampled_session_id]
+
     return df_different_session, df_same_session
 def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
@@ -287,6 +290,9 @@ def generate_features(run_details):
 
 
 def Hug_dataset_creation(expanded_df, developer_mode,features):
+    if expanded_df is None:
+        return None
+    expanded_df.reset_index(drop=True, inplace=True)
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
     if developer_mode == 'Y':
@@ -310,15 +316,15 @@ def prepare_dataset_seq2seq(batch):
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
 
-def map_datasets(Run_details, train_dataset,eval_dataset, test_dataset):
-    if Run_details.task == 'classification': #TODO
+def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
+    if run_details.task == 'classification': #TODO
         return None,None,None
-    elif Run_details.task == 'join':
+    elif run_details.task == 'join':
         return None,None,None
 
     else:
-        if Run_details.dataset_name == 'dipco':
-            if Run_details.train_state == 'NT':
+        if run_details.dataset_name == 'dipco':
+            if run_details.train_state == 'NT':
                 # just transcription
                 train_dataset = None
                 eval_dataset = None
@@ -331,7 +337,7 @@ def map_datasets(Run_details, train_dataset,eval_dataset, test_dataset):
                 test_dataset = test_dataset.map(prepare_dataset_seq2seq)
                 return train_dataset, eval_dataset, test_dataset
         else: #chime dataset
-            if Run_details.train_state == 'NT':
+            if run_details.train_state == 'NT':
                 return None,None, test_dataset.map(prepare_dataset_seq2seq)
             else:
                 return train_dataset.map(prepare_dataset_seq2seq),eval_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq)

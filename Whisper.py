@@ -55,17 +55,18 @@ feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 
 features = preprocessing.generate_features(run_details)
 
+
 if run_details.dataset_name == 'Chime6':
     dev_df = chime_parsing(df, run_details)  # dev
     eval_df = chime_parsing(eval_df, run_details)
     expanded_df = chime_parsing(train_df, run_details)
 
 else:
-    expanded_df, evals_df = dipco_parsing(df, run_details, dev_path)
+    expanded_df, temp = dipco_parsing(df, run_details, dev_path)
     print(eval_df.columns)
 
     _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
-    evals_df = evals_df
+    eval_df = temp
 
 print(expanded_df.head(10))
 
@@ -88,6 +89,14 @@ print(AutoConfig.from_pretrained(model_id))
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
+print(expanded_df.columns)
+print(features)
+train_dataset = Hug_dataset_creation(expanded_df,developer_mode,features)
+eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
+print(eval_df.columns)
+print(eval_df.head(10))
+test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
+
 datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
 train_dataset, eval_dataset, test_dataset = datasets.values()
@@ -109,7 +118,7 @@ if preprocessing.mapped_dataset_exists(train_dataset_path):
     eval_dataset = datasets.load_from_disk(eval_dataset_path)
     test_dataset = datasets.load_from_disk(test_dataset_path)
 else:
-    train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(RunDetails, train_dataset=train_dataset,
+    train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
                                                                            test_dataset=test_dataset)
     train_dataset.save_to_disk(train_dataset_path)
