@@ -53,17 +53,6 @@ def plot_WER(trainer,Run_details):
         plt.savefig(f'{filepath}/test.png', format='png')
 
 
-def visualize_frames():
-    print(expanded_df.columns)
-    expanded_df['frame_diff'] = expanded_df['num_frames']
-    print(expanded_df['num_frames'].nsmallest(20))
-    filtered_df = expanded_df[expanded_df['frame_diff'] < 0]
-    print(filtered_df)
-    # Plot the histogram with 20 bins
-    plt.hist(expanded_df['frame_diff'], bins=20, edgecolor='black')
-    plt.title('Histogram of Frame Differences')
-    plt.xlabel('Frame Difference (num_frames')
-    plt.ylabel('Frequency')
 
 
 def visualize_wer(grouped, type):
