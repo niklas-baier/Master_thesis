@@ -1,19 +1,22 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import final, Final
 import pandas as pd
 from transformers import WhisperTokenizer
 
 
 @dataclass
+@final
 class RunDetails:
-    dataset_name: str
-    model_id: str
-    version: str
-    environment: str
-    train_state: str
-    date: str
-    device: str
-    task: str
+    dataset_name: str #name of the dataset
+    model_id: str #name of the model
+    version: str  # plain model or modifed ?
+    environment: str # laptop or cluster
+    train_state: str # training wanted ?
+    date: str # current date
+    device: str # cuda
+    task: str #classification or transciption or joint
+    developer_mode: str # small datasets?
 
 
 def trained_model_transcription(model, eval_dataset, Run_details):

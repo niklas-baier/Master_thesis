@@ -3,6 +3,7 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
+pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
 from typing import List,Dict
@@ -18,23 +19,31 @@ def dipco_paths(dataset_path):
     transcript_eval_path = os.path.join(dataset_path, 'transcriptions/eval')
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path
 
+def chime_paths(dataset_path):
+    dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path)
+    train_path = os.path.join(dataset_path, 'audio/train')
+    transcript_train_path = os.path.join(dataset_path, 'transcriptions/train')
+    return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path
 
 def setup_paths(environment, dataset_name):
     dataset_path = "/project/data_asr/dipco/Dipco"
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-            return dipco_paths(dataset_path)
+            return chime_paths(dataset_path=dataset_path)
+
+
 
         else:
-
-            return dipco_paths(dataset_path=dataset_path)
+            dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
+            return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
     else:
         if dataset_name == "Chime6":
             dataset_path = "/home/niklas/Downloads/Master/espnet/egs2/chime7_task1/asr1/datasets/ChIME6/"
-            return dipco_paths(dataset_path)
+            return chime_paths(dataset_path)
         else:
-            return dipco_paths(dataset_path=dataset_path)
+            dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
+            return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
 
 def get_formated_date() -> str:
@@ -63,7 +72,6 @@ def list_json_files(directory):
 
 def load_and_concatenate_json_files(directory):
     json_files = list_json_files(directory)
-    print(json_files)
     # List to hold individual DataFrames
     data_frames = []
 
@@ -111,21 +119,21 @@ def get_corresponding_end_time(dict: dict, key: str):
     return end_time
 
 
-def generate_microphone_paths(row):
-    from Whisper import dev_path
+def generate_microphone_paths(row,mode_path):
+
     paths = []
 
     for i in range(1, 7):
-        path = f"{dev_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
+        path = f"{mode_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
         paths.append(path)
 
-    path = f"{dev_path}/{row['session_id']}_{row['speaker_id']}.wav"
+    path = f"{mode_path}/{row['session_id']}_{row['speaker_id']}.wav"
     paths.append(path)
     return paths
 
 
 def chime_generate_microphone_paths(row):
-    from Whisper import dev_path
+    from Whisper import dev_path #not only dev path TODO
     paths = []
 
     for i in range(1, 7):
@@ -186,8 +194,6 @@ def chime_parsing(dataframe, run_details):
         raise ValueError(
             "Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
-    print(dataframe.shape)
-    pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     if run_details.task == 'classification':
         dataframe.drop(
@@ -200,11 +206,15 @@ def chime_parsing(dataframe, run_details):
 
 
     dataframe.reset_index(drop=True, inplace=True)
-    return dataframe
+    if run_details.developer_mode == 'Y':
+        return dataframe.sample(n=100)
+    else:
+        return dataframe
 
 
-def dipco_parsing(dataframe, run_details):
+def dipco_parsing(dataframe, run_details, mode_path):
     # Apply the function to each row and concatenate the results
+    print("DataFrame Columns:", dataframe.columns)
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
     dataframe = dataframe.drop(columns=['start_time'])
@@ -213,7 +223,7 @@ def dipco_parsing(dataframe, run_details):
     dataframe['end'] = dataframe['end'].apply(time_to_seconds)
     dataframe = dataframe.drop(columns=['end_time'])
     # Apply the function to generate the paths for each row
-    dataframe['file_path'] = dataframe.apply(generate_microphone_paths, axis=1)
+    dataframe['file_path'] = dataframe.apply(generate_microphone_paths, axis=1, args=(mode_path,))
     # Expand the DataFrame to include the microphone paths
     dataframe = dataframe.explode('file_path').reset_index(drop=True)
     dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
@@ -226,13 +236,29 @@ def dipco_parsing(dataframe, run_details):
         raise ValueError(
             "Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
-    print(dataframe.shape)
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
-    # handle chime and dipco data differently
     # TODO
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
+    train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, run_details=run_details)
+    train_dataframe = drop_columns_dipco(train_dataframe,run_details)
+    test_dataframe = drop_columns_dipco(test_dataframe, run_details)
+    if run_details.developer_mode == 'Y':
+        return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
+    else:
+        return train_dataframe, test_dataframe
+def train_test_split(dataframe, run_details):
+    sampled_row = dataframe.sample(n=1)
+
+    # Step 2: Read the session_id value from the sampled row
+    sampled_session_id = sampled_row['session_id'].iloc[0]
+
+    # Step 3: Separate the DataFrame based on the session_id
+    df_same_session = dataframe[dataframe['session_id'] == sampled_session_id]
+    df_different_session = dataframe[dataframe['session_id'] != sampled_session_id]
+    return df_different_session, df_same_session
+def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
             columns=['endframe', 'session_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
@@ -260,19 +286,18 @@ def generate_features(run_details):
 
 
 
-def Hug_dataset_creation(expanded_df, mode,features):
+def Hug_dataset_creation(expanded_df, developer_mode,features):
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
-    if mode == 'train':
+    if developer_mode == 'Y':
         return shuffled_dataset.select(range(100))
     else:
-        return shuffled_dataset.select(range(100))
+        return shuffled_dataset
 
 
-def prepare_dataset(batch):
+def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
     from Whisper import feature_extractor, tokenizer
-    print(batch["file_path"])
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
@@ -285,7 +310,42 @@ def prepare_dataset(batch):
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
 
+def map_datasets(Run_details, train_dataset,eval_dataset, test_dataset):
+    if Run_details.task == 'classification': #TODO
+        return None,None,None
+    elif Run_details.task == 'join':
+        return None,None,None
+
+    else:
+        if Run_details.dataset_name == 'dipco':
+            if Run_details.train_state == 'NT':
+                # just transcription
+                train_dataset = None
+                eval_dataset = None
+                test_dataset = train_dataset.map(prepare_dataset_seq2seq)
+                return train_dataset, eval_dataset, test_dataset
+            else:
+                # make k fold cross TODO
+                train_dataset = train_dataset.map(prepare_dataset_seq2seq)
+                eval_dataset = eval_dataset.map(prepare_dataset_seq2seq)
+                test_dataset = test_dataset.map(prepare_dataset_seq2seq)
+                return train_dataset, eval_dataset, test_dataset
+        else: #chime dataset
+            if Run_details.train_state == 'NT':
+                return None,None, test_dataset.map(prepare_dataset_seq2seq)
+            else:
+                return train_dataset.map(prepare_dataset_seq2seq),eval_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq)
 
 
+
+
+        # split in 5 perform k-fold cross validation
+        train_dataset = prepare_dataset_seq2seq(train_dataset)
+
+
+def mapped_dataset_exists(dataset_path):
+    if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
+        return True
+    return False
 
 
