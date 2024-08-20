@@ -1,5 +1,5 @@
 import meeteval
-
+import wandb
 import preprocessing
 from peftModification import create_peft_model
 
@@ -12,7 +12,10 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
 from train import RunDetails
 from notification import send_email
-
+import os
+os.environ['WANDB_PROJECT'] = 'exprmt'
+os.environ['WAND_LOG_MODEL'] = 'true'
+wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
 version = "vanilla"  # ["vanilla","peft"]
@@ -42,8 +45,6 @@ eval_df = load_and_concatenate_json_files(transcript_eval_path)
 train_df = load_and_concatenate_json_files(transcript_train_path)
 transcriptions = df['words']
 print(eval_df.columns)
-print(df.columns + 'STAAAAAAAAAAAAAAART')
-
 from transformers import WhisperFeatureExtractor
 
 import inspect
@@ -108,11 +109,18 @@ import inspect
 
 train_dataset = train_dataset.map(prepare_dataset_seq2seq)
 # TODO
-train_dataset_path = f"{model_name}_{dataset_name}_train.hf"
-eval_dataset_path = f"{model_name}_{dataset_name}_eval.hf"
-test_dataset_path = f"{model_name}_{dataset_name}_test.hf"
+def extract_letters(input_string):
+    return ''.join([char for char in input_string if char.isalpha()])
+
+# Example usage
+
+model_str = extract_letters(model_name)
+train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
+eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
+test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
 if preprocessing.mapped_dataset_exists(train_dataset_path):
     import datasets
+    print("datasets alreaady mapped")
 
     train_dataset = datasets.load_from_disk(train_dataset_path)
     eval_dataset = datasets.load_from_disk(eval_dataset_path)
@@ -222,7 +230,7 @@ def transcribe_dataset(dataset):
 
 
 print(expanded_df.columns)
-expanded_df = transcribe_audio(expanded_df)
+#expanded_df = transcribe_audio(expanded_df)
 dev = "dev"
 
 import re
@@ -366,7 +374,8 @@ training_args = Seq2SeqTrainingArguments(
     save_steps=100,
     eval_steps=100,
     logging_steps=25,
-    report_to=["tensorboard"],
+    report_to='wandb',
+    run_name = f'{task}_{dataset_name}_{version}_{model_id}',
     load_best_model_at_end=True,
     metric_for_best_model="wer",
     greater_is_better=False,
@@ -435,11 +444,11 @@ print(expanded_df['wer'])
 """
 
 data = pd.read_csv(transcription_csv_path)
-
+data = eval_df
 print(data.head)
 # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
 data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
-data['chime_hyp'] = [chime_normalisation(text) for text in data["results"]]
+data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
 
 wer = jiwer.wer(list(data["chime_ref"]), list(data["chime_hyp"]))
 # WER of the whisper normalizer
