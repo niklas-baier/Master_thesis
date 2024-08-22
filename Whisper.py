@@ -10,12 +10,12 @@ from test_Whisper import suppress_specific_warnings, timing_decorator, run_detai
 from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, extract_session, extract_location, \
     print_wer
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
-from train import RunDetails
+from train import RunDetails, generate_training_args
 from notification import send_email
 import os
-os.environ['WANDB_PROJECT'] = 'exprmt'
+os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
-wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
+#wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
 version = "vanilla"  # ["vanilla","peft"]
@@ -42,9 +42,11 @@ from train import RunDetails, trained_model_transcription
 
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
-train_df = load_and_concatenate_json_files(transcript_train_path)
+if run_details.dataset_name == 'Chime6':
+    train_df = load_and_concatenate_json_files(transcript_train_path)
+
 transcriptions = df['words']
-print(eval_df.columns)
+
 from transformers import WhisperFeatureExtractor
 
 import inspect
@@ -55,23 +57,23 @@ feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 # expanded_df = expanded_df.drop(expanded_df['audio']=='close-talk')
 
 features = preprocessing.generate_features(run_details)
+print(features)
+print("hi")
+# Example usage
 
 
 if run_details.dataset_name == 'Chime6':
-    dev_df = chime_parsing(df, run_details)  # dev
-    eval_df = chime_parsing(eval_df, run_details)
-    expanded_df = chime_parsing(train_df, run_details)
+    dev_df = chime_parsing(df, run_details,dev_path)  # dev
+    eval_df = chime_parsing(eval_df, run_details,eval_path)
+    expanded_df = chime_parsing(train_df, run_details,train_path)
 
 else:
     expanded_df, temp = dipco_parsing(df, run_details, dev_path)
-    print(eval_df.columns)
+
 
     _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
     eval_df = temp
 
-print(expanded_df.head(10))
-
-print(len(expanded_df['file_path'].head(1)))
 
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
@@ -90,12 +92,10 @@ print(AutoConfig.from_pretrained(model_id))
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
-print(expanded_df.columns)
-print(features)
+
 train_dataset = Hug_dataset_creation(expanded_df,developer_mode,features)
 eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
-print(eval_df.columns)
-print(eval_df.head(10))
+
 test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
 
 datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
@@ -104,7 +104,7 @@ train_dataset, eval_dataset, test_dataset = datasets.values()
 
 # dataset = dataset.to_iterable_dataset()
 
-print(train_dataset[0])
+
 import inspect
 
 train_dataset = train_dataset.map(prepare_dataset_seq2seq)
@@ -357,23 +357,23 @@ if task == 'classification':
         model_id, num_labels=num_labels, label2id=label2id, id2label=id2label,
 
     )
-
+train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps = generate_training_args(run_details)
 training_args = Seq2SeqTrainingArguments(
     output_dir=f'trained_models/{task}/{dataset_name}/{version}/{model_id}',
-    per_device_train_batch_size=16,
+    per_device_train_batch_size=train_batch_size,
     gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
-    max_steps=300,  # 4000
+    max_steps=max_steps,  # 4000
     gradient_checkpointing=True,
     fp16=True,
     eval_strategy="steps",
-    per_device_eval_batch_size=16,
+    per_device_eval_batch_size=per_device_eval_batch_size,
     predict_with_generate=True,
     generation_max_length=225,
-    save_steps=100,
+    save_steps=save_steps,
     eval_steps=100,
-    logging_steps=25,
+    logging_steps=loggings_steps,
     report_to='wandb',
     run_name = f'{task}_{dataset_name}_{version}_{model_id}',
     load_best_model_at_end=True,

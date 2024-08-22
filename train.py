@@ -18,6 +18,47 @@ class RunDetails:
     task: str #classification or transciption or joint
     developer_mode: str # small datasets?
 
+@dataclass
+class DataDetails:
+    num_speakers: int
+    speakers: [str]
+    num_origins: int
+    origins: [str]
+    num_locations: int
+    locations: [str]
+    ref_chimes: [str]
+    num_ref_chimes: int
+    ref_dipcos: [str]
+    num_ref_dipcos: int
+    session_ids: [str]
+    num_session_ids: int
+    genders : [str]
+    num_genders: int
+    nativitys: [str]
+    num_nativitys: int
+    mother_tongues: [str]
+    num_mother_tongues: int
+
+def generate_data_details(dataframe):
+    arguments_datadetails = {}
+    special_columns = [
+        'speaker', 'origin', 'location', 'ref_chime', 'ref_dipco',
+        'session_id', 'gender', 'nativity', 'mother_tongue'
+    ]
+
+    for x in special_columns:
+        if x in dataframe.columns:
+            versions_x = dataframe[x].unique()
+            plural_key = x + "s"
+            arguments_datadetails[plural_key] = versions_x
+
+            num_x = len(versions_x)
+            num_key = "num_" + plural_key
+            arguments_datadetails[num_key] = num_x
+
+    data_details = DataDetails(arguments_datadetails)
+    return data_details
+
 
 def trained_model_transcription(model, eval_dataset, Run_details):
     tokenizer = WhisperTokenizer.from_pretrained(RunDetails.model_id, task="transcribe", language="en")
@@ -217,5 +258,18 @@ class WhisperForConditionalGeneration2(WhisperGenerationMixin, WhisperPreTrained
 
 
 '''
+
+def generate_training_args(run_details):
+    train_batch_size = 16
+    per_device_eval_batch_size = 16
+    max_steps = 300
+    loggings_steps = 100
+    save_steps = 200
+    if run_details.environment == 'cluster':
+        if 'tiny' in run_details.model_id:
+            train_batch_size = 64
+            per_device_eval_batch_size = 64
+            max_steps = 4000
+    return train_batch_size, per_device_eval_batch_size, max_steps, save_steps
 
 
