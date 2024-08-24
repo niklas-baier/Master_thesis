@@ -8,7 +8,7 @@ import torchaudio
 import pprint
 from typing import List,Dict
 import torch
-
+from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
 def dipco_paths(dataset_path):
@@ -246,9 +246,9 @@ def dipco_parsing(dataframe, run_details, mode_path):
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
-    # TODO
+
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
-    train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, run_details=run_details)
+    train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, test_size=0.05, random_state=42)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe.reset_index(drop=True, inplace=True)
@@ -257,7 +257,8 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
     else:
         return train_dataframe, test_dataframe
-def train_test_split(dataframe, run_details):
+'''def train_test_split(dataframe, run_details):
+   
     sampled_row = dataframe.sample(n=1)
 
     # Step 2: Read the session_id value from the sampled row
@@ -267,7 +268,7 @@ def train_test_split(dataframe, run_details):
     df_same_session = dataframe[dataframe['session_id'] == sampled_session_id]
     df_different_session = dataframe[dataframe['session_id'] != sampled_session_id]
 
-    return df_different_session, df_same_session
+    return df_different_session, df_same_session'''
 def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
@@ -361,7 +362,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
                 test_dataset = train_dataset.map(mapping_function)
                 return train_dataset, eval_dataset, test_dataset
             else:
-                # make k fold cross TODO
+                #
                 train_dataset = train_dataset.map(mapping_function)
                 eval_dataset = eval_dataset.map(mapping_function)
                 test_dataset = test_dataset.map(mapping_function)
