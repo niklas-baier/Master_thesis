@@ -307,7 +307,7 @@ def generate_training_args(run_details):
             train_batch_size = 64
             per_device_eval_batch_size = 64
             max_steps = 4000
-    return train_batch_size, per_device_eval_batch_size, max_steps, save_steps, output_dir,run_name
+    return train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps, save_steps, output_dir,run_name
 
 @suppress_specific_warnings
 @timing_decorator

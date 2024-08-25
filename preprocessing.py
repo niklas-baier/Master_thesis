@@ -248,7 +248,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
 
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
-    train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, test_size=0.05, random_state=42)
+    train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe.reset_index(drop=True, inplace=True)
@@ -301,9 +301,7 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
-    assert (expanded_df['speaker'].isna().any() == False)
 
-    print(expanded_df.groupby('speaker').head(1))
 
 
 
