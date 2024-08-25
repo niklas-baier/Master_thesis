@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import final, Final
 import pandas as pd
 from transformers import WhisperTokenizer
-
+from tqdm import tqdm
+from test_Whisper import suppress_specific_warnings, timing_decorator
+import torchaudio
 
 @dataclass
 @final
@@ -298,11 +300,49 @@ def generate_training_args(run_details):
     max_steps = 300
     loggings_steps = 100
     save_steps = 200
+    output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
+    run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.environment == 'cluster':
         if 'tiny' in run_details.model_id:
             train_batch_size = 64
             per_device_eval_batch_size = 64
             max_steps = 4000
-    return train_batch_size, per_device_eval_batch_size, max_steps, save_steps
+    return train_batch_size, per_device_eval_batch_size, max_steps, save_steps, output_dir,run_name
+
+@suppress_specific_warnings
+@timing_decorator
+def transcribe_audio(expanded_df,pipe,run_details):
+    for i in tqdm(range(expanded_df.shape[0])):
+        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
+                                   num_frames=expanded_df['num_frames'][i])
+        audio_data = audio.squeeze().numpy()
+        print(audio_data.shape)
+        if ("openai/whisper-large") in run_details.model_id:
+            result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+
+        expanded_df.loc[i, 'results'] = result['text']
+
+    return expanded_df
+#TODO parallelization with dataset
+'''
+def transcribe_dataset(dataset):
+    for i in tqdm(range(expanded_df.shape[0])):
+        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
+                                   num_frames=expanded_df['num_frames'][i])
+        audio_data = audio.squeeze().numpy()
+        print(audio_data.shape)
+        if ("openai/whisper-large") in model_id:
+            result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+
+        expanded_df.loc[i, 'results'] = result['text']
+
+    return expanded_df
+'''
 
 

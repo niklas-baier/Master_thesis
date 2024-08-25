@@ -208,7 +208,7 @@ def chime_parsing(dataframe, run_details,mode_path):
                      'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
     else:
         dataframe.drop(
-            columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
+            columns=['end_time', 'start_time', 'ref', 'endframe',
                      'session_id', 'speaker'], inplace=True)
 
 
