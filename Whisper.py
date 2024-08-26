@@ -23,7 +23,7 @@ task = 'transcribe'  # ["classification","joint","transcribe"]
 
 # dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "dipco"  # ["Chime6", "dipco"]
+dataset_name = "Chime6"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster"]
 device = "cuda"  # ["cuda"]
 model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
@@ -69,6 +69,7 @@ if run_details.dataset_name == 'Chime6':
 
 else:
     expanded_df, temp = dipco_parsing(df, run_details, dev_path)
+    #TODO Verify
 
 
     _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
@@ -98,9 +99,9 @@ eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
 
 test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
 
-datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
+'''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
-train_dataset, eval_dataset, test_dataset = datasets.values()
+train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 # dataset = dataset.to_iterable_dataset()
 

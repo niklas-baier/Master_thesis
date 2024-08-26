@@ -6,6 +6,8 @@ import os
 import re
 import ast
 
+import wandb
+
 from evaluation import chime_normalisation
 from preprocessing import get_formated_date
 
@@ -87,6 +89,7 @@ def visualize_wer(grouped, type):
     plt.title(f'WER of {model_name} on the {(dataset_name := (type[1]))} dataset')
 
     plt.savefig(f'Figures/{(partition_type := (type[0]))} bar_plot.png', format='png')
+    wandb.log({f"{dataset_name}_{model_name}": plt})
     plt.show()
 
 

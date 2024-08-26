@@ -3,6 +3,9 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
+
+
+
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
@@ -138,8 +141,13 @@ def chime_generate_microphone_paths(row, mode_path):
     if mode_path == train_path:
         for i in range(1, 5):
             for j in range(1,7):
-                path = f"{mode_path}/{row['session_id']}_{row['ref']}.CH{i}.wav"
-                paths.append(path)
+                path = f"{mode_path}/{row['session_id']}_U0{j}.CH{i}.wav"
+                if (j == 3 or j==4) :
+                    pass
+                else:
+                    paths.append(path)
+
+
 
     else:
         for i in range(1, 5):
@@ -193,6 +201,7 @@ def chime_parsing(dataframe, run_details,mode_path):
     dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
     dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
     dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1,args=(mode_path,))
+    dataframe = dataframe.explode('file_path').reset_index(drop=True)
     dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
     dataframe['duration'] = dataframe.apply(lambda row: row['end'] - row['start'], axis=1)
     if dataframe['frames'].isnull().any():
@@ -207,11 +216,16 @@ def chime_parsing(dataframe, run_details,mode_path):
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
                      'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
     else:
-        dataframe.drop(
-            columns=['end_time', 'start_time', 'ref', 'endframe',
-                     'session_id', 'speaker'], inplace=True)
+        from Whisper import train_path
+        if mode_path == train_path:
+            dataframe.drop(
+                columns=['end_time', 'start_time', 'endframe',
+                         'session_id', 'speaker', 'duration','frames','start','end'], inplace=True)
 
-
+        else:
+            dataframe.drop(
+                columns=['end_time', 'start_time', 'ref', 'endframe',
+                         'session_id', 'speaker', 'duration','frames','start','end','location'], inplace=True) # additonally drop location and ref
     dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
         return dataframe.sample(n=100)
@@ -369,7 +383,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
             if run_details.train_state == 'NT':
                 return None,None, test_dataset.map(mapping_function)
             else:
-                return train_dataset.map(mapping_function),eval_dataset.map(mapping_function),test_dataset.map(mapping_function),test_dataset.map(mapping_function)
+                return train_dataset.map(mapping_function),eval_dataset.map(mapping_function),test_dataset.map(mapping_function)
 
 
 
