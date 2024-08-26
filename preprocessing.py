@@ -3,12 +3,15 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
+
+
+
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
 from typing import List,Dict
 import torch
-
+from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
 def dipco_paths(dataset_path):
@@ -132,15 +135,28 @@ def generate_microphone_paths(row,mode_path):
     return paths
 
 
-def chime_generate_microphone_paths(row):
-    from Whisper import dev_path #not only dev path TODO
+def chime_generate_microphone_paths(row, mode_path):
     paths = []
+    from Whisper import train_path
+    if mode_path == train_path:
+        for i in range(1, 5):
+            for j in range(1,7):
+                path = f"{mode_path}/{row['session_id']}_U0{j}.CH{i}.wav"
+                if (j == 3 or j==4) :
+                    pass
+                else:
+                    paths.append(path)
 
-    for i in range(1, 7):
-        path = f"{dev_path}/{row['session_id']}_{row['ref']}.CH{i}.wav"
-        paths.append(path)
 
-    path = f"{dev_path}/{row['session_id']}_{row['speaker']}.wav"
+
+    else:
+        for i in range(1, 5):
+            path = f"{mode_path}/{row['session_id']}_{row['ref']}.CH{i}.wav"
+            paths.append(path)
+
+
+
+    path = f"{mode_path}/{row['session_id']}_{row['speaker']}.wav"
     paths.append(path)
     return paths
 
@@ -180,12 +196,12 @@ print(count_df)"""
 # print(expanded_df)
 # print(expanded_df.head(10))
 
-def chime_parsing(dataframe, run_details):
+def chime_parsing(dataframe, run_details,mode_path):
+    print(dataframe.shape)
     dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
     dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
-
-    dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1)
-    dataframe['file_path'] = dataframe.apply(lambda row: row['file_path'][0], axis=1)
+    dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1,args=(mode_path,))
+    dataframe = dataframe.explode('file_path').reset_index(drop=True)
     dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
     dataframe['duration'] = dataframe.apply(lambda row: row['end'] - row['start'], axis=1)
     if dataframe['frames'].isnull().any():
@@ -200,11 +216,16 @@ def chime_parsing(dataframe, run_details):
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
                      'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
     else:
-        dataframe.drop(
-            columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
-                     'session_id', 'speaker'], inplace=True)
+        from Whisper import train_path
+        if mode_path == train_path:
+            dataframe.drop(
+                columns=['end_time', 'start_time', 'endframe',
+                         'session_id', 'speaker', 'duration','frames','start','end'], inplace=True)
 
-
+        else:
+            dataframe.drop(
+                columns=['end_time', 'start_time', 'ref', 'endframe',
+                         'session_id', 'speaker', 'duration','frames','start','end','location'], inplace=True) # additonally drop location and ref
     dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
         return dataframe.sample(n=100)
@@ -239,9 +260,9 @@ def dipco_parsing(dataframe, run_details, mode_path):
     pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
-    # TODO
+
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
-    train_dataframe,test_dataframe = train_test_split(dataframe=dataframe, run_details=run_details)
+    train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe.reset_index(drop=True, inplace=True)
@@ -250,7 +271,8 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
     else:
         return train_dataframe, test_dataframe
-def train_test_split(dataframe, run_details):
+'''def train_test_split(dataframe, run_details):
+   
     sampled_row = dataframe.sample(n=1)
 
     # Step 2: Read the session_id value from the sampled row
@@ -260,7 +282,7 @@ def train_test_split(dataframe, run_details):
     df_same_session = dataframe[dataframe['session_id'] == sampled_session_id]
     df_different_session = dataframe[dataframe['session_id'] != sampled_session_id]
 
-    return df_different_session, df_same_session
+    return df_different_session, df_same_session'''
 def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
@@ -279,7 +301,7 @@ def generate_features(run_details):
                 'startframe': Value('int64'),
                 'num_frames': Value('int64')}
     if run_details.task == 'classification':
-        basic_features['speaker'] = Value('string'),
+        basic_features['speaker'] = Value('string') #ClassLabel(names=['P06','P30','P32','P14','P15','P29','P16','P31','P13','P08','P07','P05',]),
         return Features(basic_features)
     elif run_details.task == 'joint':
         return Features(basic_features) # TODO
@@ -293,6 +315,11 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
+
+
+
+
+
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
     if developer_mode == 'Y':
@@ -315,32 +342,48 @@ def prepare_dataset_seq2seq(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
+def prepare_dataset_classification(batch):
+    # load and resample audio data from 48 to 16kHz
+    from Whisper import feature_extractor, tokenizer
+
+    waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
+                                            num_frames=batch["num_frames"])
+    input = waveform.squeeze().numpy()
+    batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
+
+    # compute log-Mel input features from input audio array
+
+    # encode target text to label ids
+    batch["labels"] = label2id(batch["speaker"])
+    return batch
 
 def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
     if run_details.task == 'classification': #TODO
-        return None,None,None
+        mapping_function = prepare_dataset_classification
     elif run_details.task == 'join':
+
         return None,None,None
 
     else:
+        mapping_function = prepare_dataset_seq2seq
         if run_details.dataset_name == 'dipco':
             if run_details.train_state == 'NT':
                 # just transcription
                 train_dataset = None
                 eval_dataset = None
-                test_dataset = train_dataset.map(prepare_dataset_seq2seq)
+                test_dataset = train_dataset.map(mapping_function)
                 return train_dataset, eval_dataset, test_dataset
             else:
-                # make k fold cross TODO
-                train_dataset = train_dataset.map(prepare_dataset_seq2seq)
-                eval_dataset = eval_dataset.map(prepare_dataset_seq2seq)
-                test_dataset = test_dataset.map(prepare_dataset_seq2seq)
+                #
+                train_dataset = train_dataset.map(mapping_function)
+                eval_dataset = eval_dataset.map(mapping_function)
+                test_dataset = test_dataset.map(mapping_function)
                 return train_dataset, eval_dataset, test_dataset
         else: #chime dataset
             if run_details.train_state == 'NT':
-                return None,None, test_dataset.map(prepare_dataset_seq2seq)
+                return None,None, test_dataset.map(mapping_function)
             else:
-                return train_dataset.map(prepare_dataset_seq2seq),eval_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq),test_dataset.map(prepare_dataset_seq2seq)
+                return train_dataset.map(mapping_function),eval_dataset.map(mapping_function),test_dataset.map(mapping_function)
 
 
 

@@ -1,10 +1,14 @@
 import jiwer
+import meeteval
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import re
 import ast
 
+import wandb
+
+from evaluation import chime_normalisation
 from preprocessing import get_formated_date
 
 
@@ -85,6 +89,7 @@ def visualize_wer(grouped, type):
     plt.title(f'WER of {model_name} on the {(dataset_name := (type[1]))} dataset')
 
     plt.savefig(f'Figures/{(partition_type := (type[0]))} bar_plot.png', format='png')
+    wandb.log({f"{dataset_name}_{model_name}": plt})
     plt.show()
 
 
@@ -124,4 +129,66 @@ def print_wer(grouped, type):
         print(f"{type} {name}")
         print(f"wer {wer}")
 
+#TODO meeteval and wandb
+def visualize_results(transcription_csv_path, eval_df, run_details):
+    data = pd.read_csv(transcription_csv_path)
+    data = eval_df
+    print(data.head)
+    # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
+    data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
+    data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
 
+    wer = jiwer.wer(list(data["chime_ref"]), list(data["chime_hyp"]))
+    # WER of the whisper normalizer
+    print(f"WER: {wer * 100:.2f} %")
+
+    print(data.sample(n=10))
+    data['wer'] = data.apply(
+        lambda row: meeteval.wer.wer.siso.siso_word_error_rate(
+            reference=row['chime_ref'],
+            hypothesis=row['chime_hyp']
+        ),
+        axis=1
+    )
+
+    ascii_pattern = r'^[\x00-\x7F]*$'
+    # Step 3: Filter the DataFrame
+    print(data.shape)
+    df_ascii = data[data['chime_hyp'].str.contains(ascii_pattern, na=False)]
+    print(df_ascii.shape)
+    wer = jiwer.wer(list(df_ascii["chime_ref"]), list(df_ascii["chime_hyp"]))
+
+    print(f"WER: {wer * 100:.2f} %")
+
+    data['session_number'] = data['file_path'].apply(extract_session)
+    data['mic_type'] = data['file_path'].apply(extract_person)
+    data['mic_number'] = data['file_path'].apply(extract_location)
+    grouped_ses = data.groupby('session_number')
+    print_wer(grouped_ses, "session")
+    grouped_mic_type = data.groupby('mic_type')
+    grouped_mic = data.groupby(['mic_type', 'mic_number'])
+    print_wer(grouped_mic, "mic_type")
+    print(wer)
+
+    # plot visualization of the different sessions and store the results
+
+    import re
+    import matplotlib.pyplot as plt
+
+    directory = "Figures"
+
+    # Create the directory if it doesn't exist
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Directory '{directory}' created.")
+    else:
+        print(f"Directory '{directory}' already exists.")
+    visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+
+    error_rates = data['wer'].apply(lambda x: x.error_rate)
+
+    # Calculate the mean of the error rates
+    mean_error_rate = error_rates.mean()
+    print(mean_error_rate)

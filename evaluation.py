@@ -101,27 +101,24 @@ def compute_classification_metrics(pred):
 import meeteval
 from meeteval.viz.visualize import AlignmentVisualization
 
-folder = r'https://raw.githubusercontent.com/fgnt/meeteval/main/'
-av = AlignmentVisualization(
-    meeteval.io.load(folder + 'example_files/ref.stm').groupby('filename')['recordingA'],
-    meeteval.io.load(folder + 'example_files/hyp.stm').groupby('filename')['recordingA']
-)
-#display(av)  # Jupyter
-#av.dump('viz.html')  # Create standalone HTML file
-
-
-# In[ ]:
-
-
 import meeteval
-import pandas as pd
-import jiwer
-from jiwer.transforms import RemoveKaldiNonWords
-from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
+def meeteval():
+    folder = r'https://raw.githubusercontent.com/fgnt/meeteval/main/'
+    av = AlignmentVisualization(
+        meeteval.io.load(folder + 'example_files/ref.stm').groupby('filename')['recordingA'],
+        meeteval.io.load(folder + 'example_files/hyp.stm').groupby('filename')['recordingA']
+    )
+    # display(av)  # Jupyter
+    # av.dump('viz.html')  # Create standalone HTML file
 
-# SISO WER
-wer = meeteval.wer.wer.siso.siso_word_error_rate(
-    reference='The quick brown fox jumps over the lazy dog',
-    hypothesis='The qwick brown fox jump over lazy '
-)
-print(wer)
+    import pandas as pd
+    import jiwer
+    from jiwer.transforms import RemoveKaldiNonWords
+    from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
+
+    # SISO WER
+    wer = meeteval.wer.wer.siso.siso_word_error_rate(
+        reference='The quick brown fox jumps over the lazy dog',
+        hypothesis='The qwick brown fox jump over lazy '
+    )
+    print(wer)

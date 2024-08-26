@@ -8,14 +8,14 @@ from preprocessing import setup_paths, load_and_concatenate_json_files, chime_pa
 from evaluation import compute_chime_metrics, chime_normalisation
 from test_Whisper import suppress_specific_warnings, timing_decorator, run_details_valid
 from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, extract_session, extract_location, \
-    print_wer
+    print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
-from train import RunDetails
+from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio
 from notification import send_email
 import os
-os.environ['WANDB_PROJECT'] = 'exprmt'
+os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
-wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
+#wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
 version = "vanilla"  # ["vanilla","peft"]
@@ -23,7 +23,7 @@ task = 'transcribe'  # ["classification","joint","transcribe"]
 
 # dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "dipco"  # ["Chime6", "dipco"]
+dataset_name = "Chime6"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster"]
 device = "cuda"  # ["cuda"]
 model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
@@ -42,9 +42,11 @@ from train import RunDetails, trained_model_transcription
 
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
-train_df = load_and_concatenate_json_files(transcript_train_path)
+if run_details.dataset_name == 'Chime6':
+    train_df = load_and_concatenate_json_files(transcript_train_path)
+
 transcriptions = df['words']
-print(eval_df.columns)
+
 from transformers import WhisperFeatureExtractor
 
 import inspect
@@ -55,23 +57,24 @@ feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 # expanded_df = expanded_df.drop(expanded_df['audio']=='close-talk')
 
 features = preprocessing.generate_features(run_details)
+print(features)
+print("hi")
+# Example usage
 
 
 if run_details.dataset_name == 'Chime6':
-    dev_df = chime_parsing(df, run_details)  # dev
-    eval_df = chime_parsing(eval_df, run_details)
-    expanded_df = chime_parsing(train_df, run_details)
+    dev_df = chime_parsing(df, run_details,dev_path)  # dev
+    eval_df = chime_parsing(eval_df, run_details,eval_path)
+    expanded_df = chime_parsing(train_df, run_details,train_path)
 
 else:
     expanded_df, temp = dipco_parsing(df, run_details, dev_path)
-    print(eval_df.columns)
+    #TODO Verify
+
 
     _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
     eval_df = temp
 
-print(expanded_df.head(10))
-
-print(len(expanded_df['file_path'].head(1)))
 
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
@@ -90,21 +93,19 @@ print(AutoConfig.from_pretrained(model_id))
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
-print(expanded_df.columns)
-print(features)
+
 train_dataset = Hug_dataset_creation(expanded_df,developer_mode,features)
 eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
-print(eval_df.columns)
-print(eval_df.head(10))
+
 test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
 
-datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
+'''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
-train_dataset, eval_dataset, test_dataset = datasets.values()
+train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 # dataset = dataset.to_iterable_dataset()
 
-print(train_dataset[0])
+
 import inspect
 
 train_dataset = train_dataset.map(prepare_dataset_seq2seq)
@@ -193,40 +194,8 @@ print(expanded_df.shape)
 from numba import jit
 
 
-@suppress_specific_warnings
-@timing_decorator
-def transcribe_audio(expanded_df):
-    for i in tqdm(range(expanded_df.shape[0])):
-        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
-        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
-                                   num_frames=expanded_df['num_frames'][i])
-        audio_data = audio.squeeze().numpy()
-        print(audio_data.shape)
-        if ("openai/whisper-large") in model_id:
-            result = pipe(audio_data, generate_kwargs={"language": "english"})
-        else:
-            result = pipe(audio_data)
-
-        expanded_df.loc[i, 'results'] = result['text']
-
-    return expanded_df
 
 
-def transcribe_dataset(dataset):
-    for i in tqdm(range(expanded_df.shape[0])):
-        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
-        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
-                                   num_frames=expanded_df['num_frames'][i])
-        audio_data = audio.squeeze().numpy()
-        print(audio_data.shape)
-        if ("openai/whisper-large") in model_id:
-            result = pipe(audio_data, generate_kwargs={"language": "english"})
-        else:
-            result = pipe(audio_data)
-
-        expanded_df.loc[i, 'results'] = result['text']
-
-    return expanded_df
 
 
 print(expanded_df.columns)
@@ -301,38 +270,6 @@ from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments
 import torch
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Union
-
-
-@dataclass
-class DataCollatorSpeechSeq2SeqWithPadding:
-    processor: Any
-    decoder_start_token_id: int
-
-    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-        # split inputs and labels since they have to be of different lengths and need different padding methods
-        # first treat the audio inputs by simply returning torch tensors
-        input_features = [{"input_features": feature["input_features"]} for feature in features]
-        batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
-
-        # get the tokenized label sequences
-        label_features = [{"input_ids": feature["labels"]} for feature in features]
-        # pad the labels to max length
-        labels_batch = self.processor.tokenizer.pad(label_features, return_tensors="pt")
-
-        # replace padding with -100 to ignore loss correctly
-        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
-
-        # if bos token is appended in previous tokenization step,
-        # cut bos token here as it's append later anyways
-        if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
-            labels = labels[:, 1:]
-
-        batch["labels"] = labels
-
-        return batch
-
 
 data_collator = DataCollatorSpeechSeq2SeqWithPadding(
     processor=processor,
@@ -353,29 +290,30 @@ if task == 'classification':
         label2id[label] = str(i)
         id2label[str(i)] = label
 
-    model = model = AutoModelForAudioClassification.from_pretrained(
+    model = AutoModelForAudioClassification.from_pretrained(
         model_id, num_labels=num_labels, label2id=label2id, id2label=id2label,
 
     )
+train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
 training_args = Seq2SeqTrainingArguments(
-    output_dir=f'trained_models/{task}/{dataset_name}/{version}/{model_id}',
-    per_device_train_batch_size=16,
+    output_dir=output_dir,
+    per_device_train_batch_size=train_batch_size,
     gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
     learning_rate=1e-5,
     warmup_steps=0,
-    max_steps=300,  # 4000
+    max_steps=max_steps,  # 4000
     gradient_checkpointing=True,
     fp16=True,
     eval_strategy="steps",
-    per_device_eval_batch_size=16,
+    per_device_eval_batch_size=per_device_eval_batch_size,
     predict_with_generate=True,
     generation_max_length=225,
-    save_steps=100,
+    save_steps=save_steps,
     eval_steps=100,
-    logging_steps=25,
+    logging_steps=loggings_steps,
     report_to='wandb',
-    run_name = f'{task}_{dataset_name}_{version}_{model_id}',
+    run_name = run_name,
     load_best_model_at_end=True,
     metric_for_best_model="wer",
     greater_is_better=False,
@@ -406,8 +344,9 @@ else:
     plot_WER(trainer, Run_details=run_details)
 
 # Chime Normalization of the results
-model_path = "./whisper-small-hi/checkpoint-101"
-
+model_path = output_dir
+visualize_results(transcription_csv_path, eval_df, run_details)
+raise ValueError()
 # Load the model from the safetensors file
 # transcriptions = trained_model_transcription(model=model, eval_dataset=eval_dataset, Run_details=Run_details)
 
@@ -443,69 +382,9 @@ expanded_df['wer'] = expanded_df.apply(
 print(expanded_df['wer'])
 """
 
-data = pd.read_csv(transcription_csv_path)
-data = eval_df
-print(data.head)
-# dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
-data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
-data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
 
-wer = jiwer.wer(list(data["chime_ref"]), list(data["chime_hyp"]))
-# WER of the whisper normalizer
-print(f"WER: {wer * 100:.2f} %")
 
-print(data.sample(n=10))
-data['wer'] = data.apply(
-    lambda row: meeteval.wer.wer.siso.siso_word_error_rate(
-        reference=row['chime_ref'],
-        hypothesis=row['chime_hyp']
-    ),
-    axis=1
-)
 
-ascii_pattern = r'^[\x00-\x7F]*$'
-# Step 3: Filter the DataFrame
-print(data.shape)
-df_ascii = data[data['chime_hyp'].str.contains(ascii_pattern, na=False)]
-print(df_ascii.shape)
-wer = jiwer.wer(list(df_ascii["chime_ref"]), list(df_ascii["chime_hyp"]))
-
-print(f"WER: {wer * 100:.2f} %")
-
-data['session_number'] = data['file_path'].apply(extract_session)
-data['mic_type'] = data['file_path'].apply(extract_person)
-data['mic_number'] = data['file_path'].apply(extract_location)
-grouped_ses = data.groupby('session_number')
-print_wer(grouped_ses, "session")
-grouped_mic_type = data.groupby('mic_type')
-grouped_mic = data.groupby(['mic_type', 'mic_number'])
-print_wer(grouped_mic, "mic_type")
-print(wer)
-
-# plot visualization of the different sessions and store the results
-
-import re
-import matplotlib.pyplot as plt
-
-directory = "Figures"
-
-# Create the directory if it doesn't exist
-if not os.path.exists(directory):
-    os.makedirs(directory)
-    print(f"Directory '{directory}' created.")
-else:
-    print(f"Directory '{directory}' already exists.")
-visualize_wer(grouped_ses, ["session", f"{dataset_name}", f"{model_name}"])
-visualize_wer(grouped_mic_type, ["mic_type", f"{dataset_name}", f"{model_name}"])
-visualize_wer(grouped_mic, ["mic", f"{dataset_name}", f"{model_name}"])
-
-error_rates = data['wer'].apply(lambda x: x.error_rate)
-
-# Calculate the mean of the error rates
-mean_error_rate = error_rates.mean()
-print(mean_error_rate)
-
-raise ValueError()
 from huggingface_hub import notebook_login
 # ***REMOVED***
 # notebook_login()

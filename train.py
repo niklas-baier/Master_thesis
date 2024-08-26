@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import final, Final
 import pandas as pd
 from transformers import WhisperTokenizer
-
+from tqdm import tqdm
+from test_Whisper import suppress_specific_warnings, timing_decorator
+import torchaudio
 
 @dataclass
 @final
@@ -17,6 +19,47 @@ class RunDetails:
     device: str # cuda
     task: str #classification or transciption or joint
     developer_mode: str # small datasets?
+
+@dataclass
+class DataDetails:
+    num_speakers: int
+    speakers: [str]
+    num_origins: int
+    origins: [str]
+    num_locations: int
+    locations: [str]
+    ref_chimes: [str]
+    num_ref_chimes: int
+    ref_dipcos: [str]
+    num_ref_dipcos: int
+    session_ids: [str]
+    num_session_ids: int
+    genders : [str]
+    num_genders: int
+    nativitys: [str]
+    num_nativitys: int
+    mother_tongues: [str]
+    num_mother_tongues: int
+
+def generate_data_details(dataframe):
+    arguments_datadetails = {}
+    special_columns = [
+        'speaker', 'origin', 'location', 'ref_chime', 'ref_dipco',
+        'session_id', 'gender', 'nativity', 'mother_tongue'
+    ]
+
+    for x in special_columns:
+        if x in dataframe.columns:
+            versions_x = dataframe[x].unique()
+            plural_key = x + "s"
+            arguments_datadetails[plural_key] = versions_x
+
+            num_x = len(versions_x)
+            num_key = "num_" + plural_key
+            arguments_datadetails[num_key] = num_x
+
+    data_details = DataDetails(arguments_datadetails)
+    return data_details
 
 
 def trained_model_transcription(model, eval_dataset, Run_details):
@@ -216,6 +259,90 @@ class WhisperForConditionalGeneration2(WhisperGenerationMixin, WhisperPreTrained
         }
 
 
+'''
+from dataclasses import dataclass
+from typing import Any, Dict, List, Union
+
+
+@dataclass
+class DataCollatorSpeechSeq2SeqWithPadding:
+    processor: Any
+    decoder_start_token_id: int
+
+    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+        # split inputs and labels since they have to be of different lengths and need different padding methods
+        # first treat the audio inputs by simply returning torch tensors
+        input_features = [{"input_features": feature["input_features"]} for feature in features]
+        batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
+
+        # get the tokenized label sequences
+        label_features = [{"input_ids": feature["labels"]} for feature in features]
+        # pad the labels to max length
+        labels_batch = self.processor.tokenizer.pad(label_features, return_tensors="pt")
+
+        # replace padding with -100 to ignore loss correctly
+        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+        # if bos token is appended in previous tokenization step,
+        # cut bos token here as it's append later anyways
+        if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
+            labels = labels[:, 1:]
+
+        batch["labels"] = labels
+
+        return batch
+
+
+
+def generate_training_args(run_details):
+    train_batch_size = 16
+    per_device_eval_batch_size = 16
+    max_steps = 300
+    loggings_steps = 100
+    save_steps = 200
+    output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
+    run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
+    if run_details.environment == 'cluster':
+        if 'tiny' in run_details.model_id:
+            train_batch_size = 64
+            per_device_eval_batch_size = 64
+            max_steps = 4000
+    return train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps, save_steps, output_dir,run_name
+
+@suppress_specific_warnings
+@timing_decorator
+def transcribe_audio(expanded_df,pipe,run_details):
+    for i in tqdm(range(expanded_df.shape[0])):
+        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
+                                   num_frames=expanded_df['num_frames'][i])
+        audio_data = audio.squeeze().numpy()
+        print(audio_data.shape)
+        if ("openai/whisper-large") in run_details.model_id:
+            result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+
+        expanded_df.loc[i, 'results'] = result['text']
+
+    return expanded_df
+#TODO parallelization with dataset
+'''
+def transcribe_dataset(dataset):
+    for i in tqdm(range(expanded_df.shape[0])):
+        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
+        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
+                                   num_frames=expanded_df['num_frames'][i])
+        audio_data = audio.squeeze().numpy()
+        print(audio_data.shape)
+        if ("openai/whisper-large") in model_id:
+            result = pipe(audio_data, generate_kwargs={"language": "english"})
+        else:
+            result = pipe(audio_data)
+
+        expanded_df.loc[i, 'results'] = result['text']
+
+    return expanded_df
 '''
 
 
