@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer
+from transformers import WhisperTokenizer, TrainerCallback
 from tqdm import tqdm
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
@@ -345,4 +345,10 @@ def transcribe_dataset(dataset):
     return expanded_df
 '''
 
+class PrintTrainableParamsCallback(TrainerCallback):
+    def on_train_begin(self, args, state, control, **kwargs):
+        model = kwargs['model']
+        model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+        num_trainable_params = sum([torch.tensor(p.numel()) for p in model_parameters])
+        print(f"Number of trainable parameters: {num_trainable_params}")
 

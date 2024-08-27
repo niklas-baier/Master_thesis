@@ -10,7 +10,8 @@ from test_Whisper import suppress_specific_warnings, timing_decorator, run_detai
 from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, extract_session, extract_location, \
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
-from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio
+from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
+    PrintTrainableParamsCallback
 from notification import send_email
 import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
@@ -22,8 +23,8 @@ version = "vanilla"  # ["vanilla","peft"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
 
 # dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
-chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "Chime6"  # ["Chime6", "dipco"]
+
+dataset_name = "dipco"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster"]
 device = "cuda"  # ["cuda"]
 model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
@@ -68,12 +69,13 @@ if run_details.dataset_name == 'Chime6':
     expanded_df = chime_parsing(train_df, run_details,train_path)
 
 else:
-    expanded_df, temp = dipco_parsing(df, run_details, dev_path)
+    expanded_df, dev_df = dipco_parsing(df, run_details, dev_path)
     #TODO Verify
 
 
-    _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
-    eval_df = temp
+    eval_df, eval_df2 = dipco_parsing(eval_df, run_details, eval_path)
+    eval_df = pd.concat([eval_df,eval_df2])
+
 
 
 import torch
@@ -280,20 +282,7 @@ import evaluate
 
 metric = evaluate.load("wer")
 
-if task == 'classification':
-    metric = evaluate.load("accuracy")
-    dataset = dataset.select_columns('filepath')
-    label2id, id2label = dict(), dict()
-    labels = dataset["train"].features["label"].names
-    num_labels = 4
-    for i, label in enumerate(labels):
-        label2id[label] = str(i)
-        id2label[str(i)] = label
 
-    model = AutoModelForAudioClassification.from_pretrained(
-        model_id, num_labels=num_labels, label2id=label2id, id2label=id2label,
-
-    )
 train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
 training_args = Seq2SeqTrainingArguments(
@@ -329,6 +318,7 @@ trainer = Seq2SeqTrainer(
     data_collator=data_collator,
     compute_metrics=compute_chime_metrics,
     tokenizer=processor.feature_extractor,
+    callbacks= [PrintTrainableParamsCallback()]
 )
 processor.save_pretrained(training_args.output_dir)
 
