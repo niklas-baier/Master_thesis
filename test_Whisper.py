@@ -26,7 +26,7 @@ def suppress_specific_warnings(func):
 def run_details_valid(run_details):
     if run_details.train_state in ["T","NT"]:
         print(f"{run_details.train_state} as train_state valid")
-        if run_details.version in  ["vanilla","peft"]:
+        if run_details.version in  ["vanilla","peft","last-layer"]:
             print(f"{run_details.version} as version valid")
             if run_details.task in ["classification","joint","transcribe"]:
                 print(f"{run_details.task} as task valid")

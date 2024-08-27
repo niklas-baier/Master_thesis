@@ -11,7 +11,7 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
 from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
-    PrintTrainableParamsCallback
+    PrintTrainableParamsCallback, freeze_all_layers_but_last
 from notification import send_email
 import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
@@ -19,7 +19,7 @@ os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
-version = "vanilla"  # ["vanilla","peft"]
+version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
 
 # dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
@@ -156,7 +156,9 @@ else:
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
 )
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+print(f"Number of trainable parameters: {num_params}")
 processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
 
 if ("large") in model_id:
@@ -266,7 +268,8 @@ import jiwer
 # peft
 if version == 'peft':
     model = create_peft_model(model)
-
+elif version == "last-layer":
+    model = freeze_all_layers_but_last(model)
 # training of the model
 from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments

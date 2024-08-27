@@ -352,3 +352,10 @@ class PrintTrainableParamsCallback(TrainerCallback):
         num_trainable_params = sum([torch.tensor(p.numel()) for p in model_parameters])
         print(f"Number of trainable parameters: {num_trainable_params}")
 
+def freeze_all_layers_but_last(model):
+    for param in model.parameters():
+        param.requires_grad = False
+        last_layer = list(model.children())[-1]
+        for param in last_layer.parameters():
+            param.requires_grad = True
+    return model
