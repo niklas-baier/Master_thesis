@@ -32,9 +32,9 @@ def run_details_valid(run_details):
                 print(f"{run_details.task} as task valid")
                 if run_details.dataset_name in ["Chime6", "dipco"]:
                     print(f"{run_details.dataset_name} as dataset_name valid")
-                    if run_details.environment in ["laptop","cluster"]:
+                    if run_details.environment in ["laptop","cluster","bwcluster"]:
                         print(f"{run_details.environment} as environment valid")
-                        if run_details.device in ["cuda"]:
+                        if run_details.device in ["cuda","cpu"]:
                             print(f"{run_details.device} as device valid")
                             if run_details.model_id in ['openai/whisper-tiny.en','openai/whisper-tiny','openai/whisper-small','openai/whisper-medium','openai/whisper-large',"openai/whisper-large-v2","openai/whisper-large-v3","distil-whisper/distil-large-v3" ]:
                                 print(f"{run_details.model_id} as model_name valid")

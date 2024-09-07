@@ -25,8 +25,8 @@ task = 'transcribe'  # ["classification","joint","transcribe"]
 # dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
 
 dataset_name = "dipco"  # ["Chime6", "dipco"]
-environment = "laptop"  # ["laptop","cluster"]
-device = "cuda"  # ["cuda"]
+environment = "laptop"  # ["laptop","cluster", "bwcluster"]
+device = "cuda"  # ["cuda", "cpu"]
 model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(

@@ -1,13 +1,14 @@
 import jiwer
+import librosa
 import meeteval
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import re
 import ast
-
+import torch
 import wandb
-
+import numpy as np
 from evaluation import chime_normalisation
 from preprocessing import get_formated_date
 
@@ -192,3 +193,36 @@ def visualize_results(transcription_csv_path, eval_df, run_details):
     # Calculate the mean of the error rates
     mean_error_rate = error_rates.mean()
     print(mean_error_rate)
+
+
+def plot_waveform(waveform, sample_rate):
+    # Assume waveform is 1D (single channel)
+    num_samples = waveform.shape[0]
+    time_axis = np.linspace(0, num_samples / sample_rate, num_samples)
+
+    plt.figure()
+    plt.plot(time_axis, waveform)
+    plt.xlabel('Time [s]')
+    plt.ylabel('Amplitude')
+    plt.title('Waveform')
+    plt.show()
+
+# Example usage
+
+def plot_spec(ax, spec, title):
+    ax.set_title(title)
+    ax.imshow(librosa.amplitude_to_db(spec), origin="lower", aspect="auto")
+    fig, axes = plt.subplots(1, 1, sharex=True, sharey=True)
+    plot_spec(axes[1], torch.abs(spec[0]), title="Original")
+    fig.tight_layout()
+
+
+
+def plot_spectrogram(specgram, title=None, ylabel="freq_bin", ax=None):
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+    if title is not None:
+        ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    power_specgram = np.abs(specgram)**2
+    ax.imshow(librosa.power_to_db(power_specgram), origin="lower", aspect="auto", interpolation="nearest")

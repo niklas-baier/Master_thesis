@@ -40,6 +40,20 @@ def setup_paths(environment, dataset_name):
         else:
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
+    elif environment == 'bwcluster':
+        if dataset_name == "Chime6":
+            dataset_path = '/home/kit/stud/uhicv'  # '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            return chime_paths(dataset_path=dataset_path)
+
+
+
+        else:
+            dataset_path = '/home/kit/stud/uhicv/Dipco'
+            dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
+                dataset_path=dataset_path)
+            return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, '', ''
+
+
     else:
         if dataset_name == "Chime6":
             dataset_path = "/home/niklas/Downloads/Master/espnet/egs2/chime7_task1/asr1/datasets/ChIME6/"
