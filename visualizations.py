@@ -131,9 +131,9 @@ def print_wer(grouped, type):
         print(f"wer {wer}")
 
 #TODO meeteval and wandb
-def visualize_results(transcription_csv_path, eval_df, run_details):
+def visualize_results(transcription_csv_path, run_details):
     data = pd.read_csv(transcription_csv_path)
-    data = eval_df
+
     print(data.head)
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
     data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]

@@ -326,6 +326,8 @@ def transcribe_audio(expanded_df,pipe,run_details):
         expanded_df.loc[i, 'results'] = result['text']
 
     return expanded_df
+
+
 #TODO parallelization with dataset
 '''
 def transcribe_dataset(dataset):

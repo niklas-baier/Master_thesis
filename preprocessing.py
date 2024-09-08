@@ -345,17 +345,25 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
     from Whisper import feature_extractor, tokenizer
+    # Iterate over each example in the batch
+    batch["input_features"] = []
+    batch["labels"] = []
 
-    waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
-                                            num_frames=batch["num_frames"])
-    input = waveform.squeeze().numpy()
-    batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
+    for file_path, startframe, num_frames, words in zip(batch["file_path"], batch["startframe"], batch["num_frames"],
+                                                        batch["words"]):
+        waveform, sample_rate = torchaudio.load(file_path, frame_offset=startframe, num_frames=num_frames)
+        input = waveform.squeeze().numpy()
 
-    # compute log-Mel input features from input audio array
+        # Extract input features and tokenize words
+        input_features = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
+        labels = tokenizer(words).input_ids
 
-    # encode target text to label ids
-    batch["labels"] = tokenizer(batch["words"]).input_ids
+        batch["input_features"].append(input_features)
+        batch["labels"].append(labels)
+
     return batch
+
+
 def prepare_dataset_classification(batch):
     # load and resample audio data from 48 to 16kHz
     from Whisper import feature_extractor, tokenizer
@@ -405,8 +413,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 
-        # split in 5 perform k-fold cross validation
-        train_dataset = prepare_dataset_seq2seq(train_dataset)
+
 
 
 def mapped_dataset_exists(dataset_path):
