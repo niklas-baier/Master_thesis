@@ -17,7 +17,7 @@ import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
-train_state = 'T'  # ["T","NT"]
+train_state = 'NT'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
 version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
@@ -110,7 +110,7 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 import inspect
 
-train_dataset = train_dataset.map(prepare_dataset_seq2seq)
+
 # TODO
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
@@ -121,6 +121,7 @@ model_str = extract_letters(model_name)
 train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
 eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
 test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
+
 if preprocessing.mapped_dataset_exists(train_dataset_path):
     import datasets
     print("datasets alreaady mapped")
@@ -128,13 +129,12 @@ if preprocessing.mapped_dataset_exists(train_dataset_path):
     train_dataset = datasets.load_from_disk(train_dataset_path)
     eval_dataset = datasets.load_from_disk(eval_dataset_path)
     test_dataset = datasets.load_from_disk(test_dataset_path)
+    dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
 else:
     train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
-                                                                           test_dataset=test_dataset)
-    train_dataset.save_to_disk(train_dataset_path)
-    eval_dataset.save_to_disk(eval_dataset_path)
-    test_dataset.save_to_disk(test_dataset_path)
+                                                                           test_dataset=test_dataset, dataset_paths = dataset_path)
+
 
 import os
 from datasets import load_from_disk, Dataset

@@ -371,7 +371,7 @@ def prepare_dataset_classification(batch):
     batch["labels"] = label2id(batch["speaker"])
     return batch
 
-def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
+def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
     if run_details.task == 'classification': #TODO
         mapping_function = prepare_dataset_classification
     elif run_details.task == 'join':
@@ -390,8 +390,11 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
             else:
                 #
                 train_dataset = train_dataset.map(mapping_function)
+                train_dataset.save_to_disk(dataset_paths['train'])
                 eval_dataset = eval_dataset.map(mapping_function)
+                eval_dataset.save_to_disk(dataset_paths['eval'])
                 test_dataset = test_dataset.map(mapping_function)
+                test_dataset.save_to_disk(dataset_paths['test'])
                 return train_dataset, eval_dataset, test_dataset
         else: #chime dataset
             if run_details.train_state == 'NT':
