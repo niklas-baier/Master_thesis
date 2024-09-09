@@ -311,11 +311,12 @@ def generate_training_args(run_details):
 
 @suppress_specific_warnings
 @timing_decorator
-def transcribe_audio(expanded_df,pipe,run_details):
-    for i in tqdm(range(expanded_df.shape[0])):
-        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
-        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
-                                   num_frames=expanded_df['num_frames'][i])
+def transcribe_audio(eval_df, pipe, run_details):
+    # transcription of the test_data
+    for i in tqdm(range(eval_df.shape[0])):
+
+        audio, _ = torchaudio.load(eval_df['file_path'][i], frame_offset=eval_df['startframe'][i],
+                                   num_frames=eval_df['num_frames'][i])
         audio_data = audio.squeeze().numpy()
         print(audio_data.shape)
         if ("openai/whisper-large") in run_details.model_id:
@@ -323,9 +324,9 @@ def transcribe_audio(expanded_df,pipe,run_details):
         else:
             result = pipe(audio_data)
 
-        expanded_df.loc[i, 'results'] = result['text']
+        eval_df.loc[i, 'results'] = result['text']
 
-    return expanded_df
+    return eval_df
 
 
 #TODO parallelization with dataset

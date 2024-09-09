@@ -136,6 +136,7 @@ def visualize_results(transcription_csv_path, run_details):
 
     print(data.head)
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
+
     data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
     data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
 
@@ -151,6 +152,8 @@ def visualize_results(transcription_csv_path, run_details):
         ),
         axis=1
     )
+    data['cer'] = data.apply(lambda row: jiwer.cer(reference=row['chime_ref'], hypothesis=row['chime_hyp']), axis=1)
+
 
     ascii_pattern = r'^[\x00-\x7F]*$'
     # Step 3: Filter the DataFrame
@@ -187,6 +190,8 @@ def visualize_results(transcription_csv_path, run_details):
     visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_name}"])
     visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_name}"])
     visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    # TODO sort by WER and CER what percentage is close what percentage
+
 
     error_rates = data['wer'].apply(lambda x: x.error_rate)
 

@@ -346,22 +346,19 @@ def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
     from Whisper import feature_extractor, tokenizer
     # Iterate over each example in the batch
-    batch["input_features"] = []
-    batch["labels"] = []
+    from Whisper import feature_extractor, tokenizer
 
-    for file_path, startframe, num_frames, words in zip(batch["file_path"], batch["startframe"], batch["num_frames"],
-                                                        batch["words"]):
-        waveform, sample_rate = torchaudio.load(file_path, frame_offset=startframe, num_frames=num_frames)
-        input = waveform.squeeze().numpy()
+    waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
+                                            num_frames=batch["num_frames"])
+    input = waveform.squeeze().numpy()
+    batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
 
-        # Extract input features and tokenize words
-        input_features = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
-        labels = tokenizer(words).input_ids
+    # compute log-Mel input features from input audio array
 
-        batch["input_features"].append(input_features)
-        batch["labels"].append(labels)
-
+    # encode target text to label ids
+    batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
+
 
 
 def prepare_dataset_classification(batch):

@@ -17,17 +17,15 @@ import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
+# setting the run details
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
 version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
-
-# dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
-
 dataset_name = "dipco"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster", "bwcluster"]
 device = "cuda"  # ["cuda", "cpu"]
-model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
+model_name = model_id = "openai/whisper-medium"  # "openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
     environment=environment, dataset_name=dataset_name)
@@ -101,7 +99,7 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 import inspect
 
-train_dataset = train_dataset.map(prepare_dataset_seq2seq, batched=True)
+train_dataset = train_dataset.map(prepare_dataset_seq2seq)
 # TODO
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
@@ -120,9 +118,10 @@ if preprocessing.mapped_dataset_exists(train_dataset_path):
     eval_dataset = datasets.load_from_disk(eval_dataset_path)
     test_dataset = datasets.load_from_disk(test_dataset_path)
 else:
+    dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
     train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
-                                                                           test_dataset=test_dataset)
+                                                                           test_dataset=test_dataset,dataset_paths=dataset_paths)
     train_dataset.save_to_disk(train_dataset_path)
     eval_dataset.save_to_disk(eval_dataset_path)
     test_dataset.save_to_disk(test_dataset_path)
@@ -135,7 +134,7 @@ num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Number of trainable parameters: {num_params}")
 processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
 
-if ("large") in model_id:
+if ("large" or "medium") in model_id:
     processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
     model.generation_config.language = "English"
     model.generation_config.task = "transcribe"
@@ -153,7 +152,7 @@ pipe = pipeline(
     max_new_tokens=128,
     chunk_length_s=30,
     batch_size=16,
-    return_timestamps=True,
+    return_timestamps=False,
     torch_dtype=torch_dtype,
     device=device
 
@@ -171,13 +170,14 @@ eval_df.reset_index(drop=True, inplace=True)
 import re
 
 # Regex pattern splits on substrings "; " and ", "
-components = re.split('-|/|', model_id)
+components = re.split('-|/|.|', model_id)
 model_size = components[2]
-transcription_csv_path = f'{dataset_name}_eval_{model_size[:4]}_{train_state}.csv'
+transcription_csv_path = f'{dataset_name}_eval_{model_size}_{train_state}.csv'
 if(Path(transcription_csv_path).is_file()):
     print("transcription csv already exists")
+    print(transcription_csv_path)
 else:
-    eval_df = transcribe_audio(expanded_df=eval_df, pipe=pipe, run_details=run_details)
+    eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
 
 
@@ -298,7 +298,6 @@ if train_state == 'NT':
     visualize_results(transcription_csv_path, run_details)
 else:
     trainer.train()
-
     plot_loss(trainer)
     plot_WER(trainer, Run_details=run_details)
     model_path = output_dir
