@@ -2,6 +2,9 @@ import warnings
 from functools import wraps
 import time
 
+from preprocessing import extract_special_token
+
+
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -58,6 +61,16 @@ def custom_print(*args, **kwargs):
 # Override the print function
 
 """
-import pandas as pd
-data = v
+def dipco_only_planned_special_tokens(expanded_df,eval_df):
+    pattern = r'\[\w+\]'
 
+    # should contain noise unintelligible and laugh
+
+
+    expanded_df['token'] = expanded_df.apply(lambda row: extract_special_token(row['words']), axis=1)
+    eval_df['token'] = eval_df.apply(lambda row: extract_special_token(row['words']), axis=1)
+    grouped_train = expanded_df.groupby(['token'])
+    allowed_tokens = ["[noise]", "[laugh]", "[unintelligible]","No token", "[laughs]"]# laughs is the token in chime instead of dipco laugh
+    train_all_in_array = expanded_df['token'].isin(allowed_tokens).all()
+    eval_all_in_array = eval_df['token'].isin(allowed_tokens).all()
+    return (train_all_in_array and eval_all_in_array)

@@ -419,3 +419,10 @@ def mapped_dataset_exists(dataset_path):
     return False
 
 
+def extract_special_token(label_string):
+    import re
+    match = re.search(r'\[\w+\]', label_string)
+    if match:
+        return str(match.group(0))
+    else:
+        return "No token"
