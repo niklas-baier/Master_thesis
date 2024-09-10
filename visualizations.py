@@ -131,6 +131,25 @@ def print_wer(grouped, type):
         print(f"wer {wer}")
 
 #TODO meeteval and wandb
+def plot_histograms(data, run_details):
+    plt.figure(figsize=(10, 6))
+    metric = "wer"
+    plt.hist(data[metric], bins=100, color='blue', alpha=0.7)
+    plt.title('Histogram of Word Error Rate (WER)')
+    plt.xlabel('WER')
+    plt.ylabel('Frequency')
+    plt.grid(True)
+    hist_path = f'Figures/run_details.dataset/{metric}'
+    plt.savefig(hist_path)
+    metric = "cer"
+    plt.hist(data[metric], bins=100, color='yellow', alpha=0.7)
+    plt.title('Histogram of Word Error Rate (WER)')
+    plt.xlabel('WER')
+    plt.ylabel('Frequency')
+    plt.grid(True)
+    plt.savefig(hist_path)
+
+
 def visualize_results(transcription_csv_path, run_details):
     data = pd.read_csv(transcription_csv_path)
 
@@ -172,6 +191,7 @@ def visualize_results(transcription_csv_path, run_details):
     grouped_mic_type = data.groupby('mic_type')
     grouped_mic = data.groupby(['mic_type', 'mic_number'])
     print_wer(grouped_mic, "mic_type")
+
     print(wer)
 
     # plot visualization of the different sessions and store the results
@@ -190,6 +210,7 @@ def visualize_results(transcription_csv_path, run_details):
     visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_name}"])
     visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_name}"])
     visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    plot_histograms(data)
     # TODO sort by WER and CER what percentage is close what percentage
 
 

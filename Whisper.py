@@ -1,6 +1,7 @@
 import meeteval
 import wandb
 import preprocessing
+from logging import log_run
 from peftModification import create_peft_model
 from pathlib import Path
 from preprocessing import setup_paths, load_and_concatenate_json_files, chime_parsing, dipco_parsing, \
@@ -24,8 +25,8 @@ version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
 dataset_name = "dipco"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster", "bwcluster"]
-device = "cuda"  # ["cuda", "cpu"]
-model_name = model_id = "openai/whisper-medium"  # "openai/whisper-large"
+device = "cpu"  # ["cuda", "cpu"]
+model_name = model_id = "openai/whisper-tiny"  # "openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
     environment=environment, dataset_name=dataset_name)
@@ -300,6 +301,7 @@ else:
     trainer.train()
     plot_loss(trainer)
     plot_WER(trainer, Run_details=run_details)
+    log_run(run_details=run_details)
     model_path = output_dir
     #TODO take it from the model
     visualize_results(transcription_csv_path, run_details)

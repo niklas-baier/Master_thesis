@@ -48,9 +48,7 @@ def run_details_valid(run_details):
 import sys
 import traceback
 
-# Save the original print function
-original_print = print
-# print = custom_print
+"""
 def custom_print(*args, **kwargs):
     # Print the stack trace
     traceback.print_stack(limit=5, file=sys.stdout)
@@ -59,5 +57,7 @@ def custom_print(*args, **kwargs):
 
 # Override the print function
 
-
+"""
+import pandas as pd
+data = v
 
