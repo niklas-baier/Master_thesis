@@ -9,7 +9,7 @@ import ast
 import torch
 import wandb
 import numpy as np
-from evaluation import chime_normalisation
+from evaluation import chime_normalisation, analysis_special_tokens
 from preprocessing import get_formated_date
 
 
@@ -90,7 +90,7 @@ def visualize_wer(grouped, type):
     plt.title(f'WER of {model_name} on the {(dataset_name := (type[1]))} dataset')
 
     plt.savefig(f'Figures/{(partition_type := (type[0]))} bar_plot.png', format='png')
-    wandb.log({f"{dataset_name}_{model_name}": plt})
+    wandb.log({f"{dataset_name}_{model_name}": wandb.Image(plt)})
     plt.show()
 
 
@@ -155,9 +155,10 @@ def visualize_results(transcription_csv_path, run_details):
 
     print(data.head)
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
+    data['results'] = data['results'].astype(str)
 
     data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
-    data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
+    data['chime_hyp'] = [chime_normalisation(text) for text in data["results"]]
 
     wer = jiwer.wer(list(data["chime_ref"]), list(data["chime_hyp"]))
     # WER of the whisper normalizer
@@ -191,7 +192,7 @@ def visualize_results(transcription_csv_path, run_details):
     grouped_mic_type = data.groupby('mic_type')
     grouped_mic = data.groupby(['mic_type', 'mic_number'])
     print_wer(grouped_mic, "mic_type")
-
+    grouped_token = analysis_special_tokens(data)
     print(wer)
 
     # plot visualization of the different sessions and store the results
@@ -207,9 +208,10 @@ def visualize_results(transcription_csv_path, run_details):
         print(f"Directory '{directory}' created.")
     else:
         print(f"Directory '{directory}' already exists.")
-    visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_name}"])
-    visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_name}"])
-    visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    visualize_wer(grouped_token, ["special_token", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_id}"])
     plot_histograms(data)
     # TODO sort by WER and CER what percentage is close what percentage
 

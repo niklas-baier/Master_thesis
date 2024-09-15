@@ -3,7 +3,7 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
-
+from itertools import islice
 
 
 pd.options.mode.copy_on_write = True
@@ -336,8 +336,11 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
+    shuffled_dataset = shuffled_dataset.to_iterable_dataset()
+    breakpoint()
     if developer_mode == 'Y':
-        return shuffled_dataset.select(range(100))
+
+        shuffled_dataset = islice(shuffled_dataset, 100)
     else:
         return shuffled_dataset
 
@@ -361,24 +364,10 @@ def prepare_dataset_seq2seq(batch):
 
 
 
-def prepare_dataset_classification(batch):
-    # load and resample audio data from 48 to 16kHz
-    from Whisper import feature_extractor, tokenizer
-
-    waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
-                                            num_frames=batch["num_frames"])
-    input = waveform.squeeze().numpy()
-    batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
-
-    # compute log-Mel input features from input audio array
-
-    # encode target text to label ids
-    batch["labels"] = label2id(batch["speaker"])
-    return batch
 
 def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
     if run_details.task == 'classification': #TODO
-        mapping_function = prepare_dataset_classification
+       print("classification ")
     elif run_details.task == 'join':
 
         return None,None,None
@@ -393,24 +382,26 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
                 test_dataset = train_dataset.map(mapping_function)
                 return train_dataset, eval_dataset, test_dataset
             else:
-                #
-                train_dataset = train_dataset.map(mapping_function)
-                train_dataset.save_to_disk(dataset_paths['train'])
-                eval_dataset = eval_dataset.map(mapping_function)
-                eval_dataset.save_to_disk(dataset_paths['eval'])
-                test_dataset = test_dataset.map(mapping_function)
-                test_dataset.save_to_disk(dataset_paths['test'])
-                return train_dataset, eval_dataset, test_dataset
+                return map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths,mapping_function)
+
         else: #chime dataset
             if run_details.train_state == 'NT':
                 return None,None, test_dataset.map(mapping_function)
             else:
-                return train_dataset.map(mapping_function),eval_dataset.map(mapping_function),test_dataset.map(mapping_function)
+                return map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
 
 
 
 
 
+def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
+    train_dataset = train_dataset.map(mapping_function)
+    train_dataset.save_to_disk(dataset_paths['train'])
+    eval_dataset = eval_dataset.map(mapping_function)
+    eval_dataset.save_to_disk(dataset_paths['eval'])
+    test_dataset = test_dataset.map(mapping_function)
+    test_dataset.save_to_disk(dataset_paths['test'])
+    return train_dataset, eval_dataset, test_dataset
 
 
 def mapped_dataset_exists(dataset_path):

@@ -3,11 +3,13 @@ from pathlib import Path
 import meeteval.wer.wer.siso
 import pandas as pd
 from jiwer import cer
+
+from latex_conversion_results import save_latex_csv
 from preprocessing import get_formated_date
 
 
-def log_run(run_details, results_path):
-    results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}_{get_formated_date()}")
+def log_run(run_details):
+    results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}_{get_formated_date()}/results.json")
     results = pd.read_json(results_path)
     #TODO
     results['wer'] = results.apply(lambda row: meeteval.wer.wer.siso.siso_word_error_rate(row['predictions'], row['labels']), axis=1)
@@ -17,7 +19,7 @@ def log_run(run_details, results_path):
     run_average_cer = results['cer'].mean()
     filepath = "run_logs.csv"
     if(Path(filepath).is_file()):
-        df = pd.read_csv("run_logs.csv")
+        df = pd.read_csv(filepath)
     else:
         df = pd.DataFrame(columns=["model_name", "dataset", "date", "Training_version", "environment", "developer_mode", "wer", "cer","results_path", "notes"])
 
@@ -35,5 +37,6 @@ def log_run(run_details, results_path):
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(filepath, index=False)
+    save_latex_csv(df)
 
 

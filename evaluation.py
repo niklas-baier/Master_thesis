@@ -131,6 +131,7 @@ def analysis_special_tokens(results):
     # Find the rows where the condition is False
     failed_rows = results[~mask]
     rows_with_tokens = results[mask]
+    return grouped_train
 
 
 

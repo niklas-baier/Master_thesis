@@ -1,7 +1,8 @@
 import meeteval
 import wandb
+import pdb
 import preprocessing
-from logging import log_run
+from logrun import log_run
 from peftModification import create_peft_model
 from pathlib import Path
 from preprocessing import setup_paths, load_and_concatenate_json_files, chime_parsing, dipco_parsing, \
@@ -25,7 +26,7 @@ version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
 dataset_name = "dipco"  # ["Chime6", "dipco"]
 environment = "laptop"  # ["laptop","cluster", "bwcluster"]
-device = "cpu"  # ["cuda", "cpu"]
+device = "cuda"  # ["cuda", "cpu"]
 model_name = model_id = "openai/whisper-tiny"  # "openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
@@ -100,7 +101,7 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 import inspect
 
-train_dataset = train_dataset.map(prepare_dataset_seq2seq)
+
 # TODO
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
@@ -123,9 +124,7 @@ else:
     train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
                                                                            test_dataset=test_dataset,dataset_paths=dataset_paths)
-    train_dataset.save_to_disk(train_dataset_path)
-    eval_dataset.save_to_disk(eval_dataset_path)
-    test_dataset.save_to_disk(test_dataset_path)
+
 
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
