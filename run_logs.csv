@@ -1,0 +1,11 @@
+model_name,dataset,date,Training_version,environment,developer_mode,wer,cer,results_path,notes
+openai/whisper-tiny,dipco,09/11/2024,last-layer,laptop,Y,2.248961769143853,2.865971717344778,openai/whisper-tiny_dipco_last-layer_09/11/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/11/2024,last-layer,laptop,Y,2.248961769143853,2.865971717344778,openai/whisper-tiny_dipco_last-layer_09/11/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/11/2024,last-layer,laptop,Y,2.2490680616608603,2.8660459416099826,openai/whisper-tiny_dipco_last-layer_09/11/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/11/2024,last-layer,laptop,Y,2.2484062135882983,2.865628310751372,openai/whisper-tiny_dipco_last-layer_09/11/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,2.885656236938772,4.492851535717176,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,2.889123269905805,4.496695687361426,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,2.8845023907849257,4.4922299017883045,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,2.8845023907849257,4.4922299017883045,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,2.889123269905805,4.503074475240214,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset
+openai/whisper-tiny,dipco,09/15/2024,last-layer,laptop,Y,1.2840429264821023,1.4765502929800567,openai/whisper-tiny_dipco_last-layer_09/15/2024/results.json,Initial run with custom dataset

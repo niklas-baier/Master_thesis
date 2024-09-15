@@ -1,4 +1,7 @@
+
 import meeteval
+import datasets
+
 import wandb
 import pdb
 import preprocessing
@@ -112,19 +115,16 @@ model_str = extract_letters(model_name)
 train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
 eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
 test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
-if preprocessing.mapped_dataset_exists(train_dataset_path):
-    import datasets
-    print("datasets alreaady mapped")
-
-    train_dataset = datasets.load_from_disk(train_dataset_path)
-    eval_dataset = datasets.load_from_disk(eval_dataset_path)
-    test_dataset = datasets.load_from_disk(test_dataset_path)
-else:
+if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
+    print("dataset not mapped yet")
     dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
-    train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
+    preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
                                                                            test_dataset=test_dataset,dataset_paths=dataset_paths)
 
+train_dataset = datasets.load_from_disk(train_dataset_path)
+eval_dataset = datasets.load_from_disk(eval_dataset_path)
+test_dataset = datasets.load_from_disk(test_dataset_path)
 
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
@@ -303,6 +303,7 @@ else:
     log_run(run_details=run_details)
     model_path = output_dir
     #TODO take it from the model
+
     visualize_results(transcription_csv_path, run_details)
 
 

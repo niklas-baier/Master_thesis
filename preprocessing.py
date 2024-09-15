@@ -12,7 +12,7 @@ import pprint
 from typing import List,Dict
 import torch
 from sklearn.model_selection import train_test_split
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 from datasets import Features, Value
 def dipco_paths(dataset_path):
 
@@ -336,13 +336,12 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
-    shuffled_dataset = shuffled_dataset.to_iterable_dataset()
-    breakpoint()
+
     if developer_mode == 'Y':
 
-        shuffled_dataset = islice(shuffled_dataset, 100)
-    else:
-        return shuffled_dataset
+        shuffled_dataset = shuffled_dataset.select(range(100))
+
+    return shuffled_dataset
 
 
 def prepare_dataset_seq2seq(batch):
@@ -366,42 +365,25 @@ def prepare_dataset_seq2seq(batch):
 
 
 def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
-    if run_details.task == 'classification': #TODO
-       print("classification ")
-    elif run_details.task == 'join':
-
-        return None,None,None
-
-    else:
-        mapping_function = prepare_dataset_seq2seq
-        if run_details.dataset_name == 'dipco':
-            if run_details.train_state == 'NT':
-                # just transcription
-                train_dataset = None
-                eval_dataset = None
-                test_dataset = train_dataset.map(mapping_function)
-                return train_dataset, eval_dataset, test_dataset
-            else:
-                return map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths,mapping_function)
-
-        else: #chime dataset
-            if run_details.train_state == 'NT':
-                return None,None, test_dataset.map(mapping_function)
-            else:
-                return map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
+    mapping_function = prepare_dataset_seq2seq
+    map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
 
 
 
 
 
 def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
-    train_dataset = train_dataset.map(mapping_function)
-    train_dataset.save_to_disk(dataset_paths['train'])
-    eval_dataset = eval_dataset.map(mapping_function)
-    eval_dataset.save_to_disk(dataset_paths['eval'])
+    if run_details.train_state == 'T':
+        train_dataset = train_dataset.map(mapping_function)
+        train_dataset.save_to_disk(dataset_paths['train'])
+        del train_dataset
+        eval_dataset = eval_dataset.map(mapping_function)
+        eval_dataset.save_to_disk(dataset_paths['eval'])
+        del eval_dataset
     test_dataset = test_dataset.map(mapping_function)
     test_dataset.save_to_disk(dataset_paths['test'])
-    return train_dataset, eval_dataset, test_dataset
+    del test_dataset
+    return
 
 
 def mapped_dataset_exists(dataset_path):

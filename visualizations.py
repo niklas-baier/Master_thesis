@@ -134,20 +134,22 @@ def print_wer(grouped, type):
 def plot_histograms(data, run_details):
     plt.figure(figsize=(10, 6))
     metric = "wer"
-    plt.hist(data[metric], bins=100, color='blue', alpha=0.7)
+    data['only'] = data.apply(lambda row: row[metric].error_rate, axis=1)
+    plt.hist(data['only'], bins=100, color='blue', alpha=0.7)
     plt.title('Histogram of Word Error Rate (WER)')
     plt.xlabel('WER')
     plt.ylabel('Frequency')
     plt.grid(True)
-    hist_path = f'Figures/run_details.dataset/{metric}'
-    plt.savefig(hist_path)
+    hist_path = f'Figures/Training/histograms/{run_details.dataset_name}/{metric}.png'
+    plt.savefig(hist_path,format='png')
     metric = "cer"
+    hist_path = f'Figures/Training/histograms/{run_details.dataset_name}/{metric}.png'
     plt.hist(data[metric], bins=100, color='yellow', alpha=0.7)
     plt.title('Histogram of Word Error Rate (WER)')
     plt.xlabel('WER')
     plt.ylabel('Frequency')
     plt.grid(True)
-    plt.savefig(hist_path)
+    plt.savefig(hist_path,format='png')
 
 
 def visualize_results(transcription_csv_path, run_details):
@@ -212,7 +214,7 @@ def visualize_results(transcription_csv_path, run_details):
     visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_id}"])
     visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_id}"])
     visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_id}"])
-    plot_histograms(data)
+    plot_histograms(data,run_details=run_details)
     # TODO sort by WER and CER what percentage is close what percentage
 
 
