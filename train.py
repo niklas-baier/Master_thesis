@@ -303,10 +303,14 @@ def generate_training_args(run_details):
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.environment == 'cluster':
+        max_steps = 4000
         if 'tiny' in run_details.model_id:
             train_batch_size = 64
             per_device_eval_batch_size = 64
-            max_steps = 4000
+    elif run_details.environment == 'bwcluster':
+        train_batch_size = 64
+        per_device_eval_batch_size = 64
+        max_steps = 4000
     return train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps, save_steps, output_dir,run_name
 
 @suppress_specific_warnings
