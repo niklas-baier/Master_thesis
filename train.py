@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer
+from transformers import WhisperTokenizer, TrainerCallback
 from tqdm import tqdm
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
@@ -303,19 +303,24 @@ def generate_training_args(run_details):
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.environment == 'cluster':
+        max_steps = 4000
         if 'tiny' in run_details.model_id:
             train_batch_size = 64
             per_device_eval_batch_size = 64
-            max_steps = 4000
+    elif run_details.environment == 'bwcluster':
+        train_batch_size = 64
+        per_device_eval_batch_size = 64
+        max_steps = 4000
     return train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps, save_steps, output_dir,run_name
 
 @suppress_specific_warnings
 @timing_decorator
-def transcribe_audio(expanded_df,pipe,run_details):
-    for i in tqdm(range(expanded_df.shape[0])):
-        # audio = whisper.load_audio('output_segments/segment_' + str(i + 1) + '.wav')
-        audio, _ = torchaudio.load(expanded_df['file_path'][i], frame_offset=expanded_df['startframe'][i],
-                                   num_frames=expanded_df['num_frames'][i])
+def transcribe_audio(eval_df, pipe, run_details):
+    # transcription of the test_data
+    for i in tqdm(range(eval_df.shape[0])):
+
+        audio, _ = torchaudio.load(eval_df['file_path'][i], frame_offset=eval_df['startframe'][i],
+                                   num_frames=eval_df['num_frames'][i])
         audio_data = audio.squeeze().numpy()
         print(audio_data.shape)
         if ("openai/whisper-large") in run_details.model_id:
@@ -323,9 +328,11 @@ def transcribe_audio(expanded_df,pipe,run_details):
         else:
             result = pipe(audio_data)
 
-        expanded_df.loc[i, 'results'] = result['text']
+        eval_df.loc[i, 'results'] = result['text']
 
-    return expanded_df
+    return eval_df
+
+
 #TODO parallelization with dataset
 '''
 def transcribe_dataset(dataset):
@@ -345,4 +352,17 @@ def transcribe_dataset(dataset):
     return expanded_df
 '''
 
+class PrintTrainableParamsCallback(TrainerCallback):
+    def on_train_begin(self, args, state, control, **kwargs):
+        model = kwargs['model']
+        model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+        num_trainable_params = sum([torch.tensor(p.numel()) for p in model_parameters])
+        print(f"Number of trainable parameters: {num_trainable_params}")
 
+def freeze_all_layers_but_last(model):
+    for param in model.parameters():
+        param.requires_grad = False
+        last_layer = list(model.children())[-1]
+        for param in last_layer.parameters():
+            param.requires_grad = True
+    return model

@@ -5,7 +5,7 @@ from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
 import json
 import os
 import numpy as np
-from preprocessing import get_formated_date
+from preprocessing import get_formated_date, extract_special_token
 import evaluate
 
 def chime_normalisation(input:str) -> str:
@@ -122,3 +122,16 @@ def meeteval():
         hypothesis='The qwick brown fox jump over lazy '
     )
     print(wer)
+
+def analysis_special_tokens(results):
+    results['token'] = results.apply(lambda row: extract_special_token(row['words']), axis=1)
+    grouped_train = results.groupby(['token'])
+    allowed_tokens = ["[noise]", "[laugh]", "[unintelligible]", "No token", "[laughs]"]  #
+    mask = results['token'].isin(allowed_tokens)
+    # Find the rows where the condition is False
+    failed_rows = results[~mask]
+    rows_with_tokens = results[mask]
+    return grouped_train
+
+
+

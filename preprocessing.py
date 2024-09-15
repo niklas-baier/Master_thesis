@@ -3,7 +3,7 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
-
+from itertools import islice
 
 
 pd.options.mode.copy_on_write = True
@@ -12,7 +12,7 @@ import pprint
 from typing import List,Dict
 import torch
 from sklearn.model_selection import train_test_split
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 from datasets import Features, Value
 def dipco_paths(dataset_path):
 
@@ -40,6 +40,20 @@ def setup_paths(environment, dataset_name):
         else:
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
+    elif environment == 'bwcluster':
+        if dataset_name == "Chime6":
+            dataset_path = '/home/kit/stud/uhicv'  # '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            return chime_paths(dataset_path=dataset_path)
+
+
+
+        else:
+            dataset_path = '/home/kit/stud/uhicv/Dipco'
+            dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
+                dataset_path=dataset_path)
+            return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, '', ''
+
+
     else:
         if dataset_name == "Chime6":
             dataset_path = "/home/niklas/Downloads/Master/espnet/egs2/chime7_task1/asr1/datasets/ChIME6/"
@@ -322,14 +336,18 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 
     dataset = Dataset.from_pandas(expanded_df, features=features)
     shuffled_dataset = dataset.shuffle(seed=42)
+
     if developer_mode == 'Y':
-        return shuffled_dataset.select(range(100))
-    else:
-        return shuffled_dataset
+
+        shuffled_dataset = shuffled_dataset.select(range(100))
+
+    return shuffled_dataset
 
 
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
+    from Whisper import feature_extractor, tokenizer
+    # Iterate over each example in the batch
     from Whisper import feature_extractor, tokenizer
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
@@ -342,54 +360,30 @@ def prepare_dataset_seq2seq(batch):
     # encode target text to label ids
     batch["labels"] = tokenizer(batch["words"]).input_ids
     return batch
-def prepare_dataset_classification(batch):
-    # load and resample audio data from 48 to 16kHz
-    from Whisper import feature_extractor, tokenizer
-
-    waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
-                                            num_frames=batch["num_frames"])
-    input = waveform.squeeze().numpy()
-    batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
-
-    # compute log-Mel input features from input audio array
-
-    # encode target text to label ids
-    batch["labels"] = label2id(batch["speaker"])
-    return batch
-
-def map_datasets(run_details, train_dataset,eval_dataset, test_dataset):
-    if run_details.task == 'classification': #TODO
-        mapping_function = prepare_dataset_classification
-    elif run_details.task == 'join':
-
-        return None,None,None
-
-    else:
-        mapping_function = prepare_dataset_seq2seq
-        if run_details.dataset_name == 'dipco':
-            if run_details.train_state == 'NT':
-                # just transcription
-                train_dataset = None
-                eval_dataset = None
-                test_dataset = train_dataset.map(mapping_function)
-                return train_dataset, eval_dataset, test_dataset
-            else:
-                #
-                train_dataset = train_dataset.map(mapping_function)
-                eval_dataset = eval_dataset.map(mapping_function)
-                test_dataset = test_dataset.map(mapping_function)
-                return train_dataset, eval_dataset, test_dataset
-        else: #chime dataset
-            if run_details.train_state == 'NT':
-                return None,None, test_dataset.map(mapping_function)
-            else:
-                return train_dataset.map(mapping_function),eval_dataset.map(mapping_function),test_dataset.map(mapping_function)
 
 
 
 
-        # split in 5 perform k-fold cross validation
-        train_dataset = prepare_dataset_seq2seq(train_dataset)
+def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
+    mapping_function = prepare_dataset_seq2seq
+    map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
+
+
+
+
+
+def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
+    if run_details.train_state == 'T':
+        train_dataset = train_dataset.map(mapping_function)
+        train_dataset.save_to_disk(dataset_paths['train'])
+        del train_dataset
+        eval_dataset = eval_dataset.map(mapping_function)
+        eval_dataset.save_to_disk(dataset_paths['eval'])
+        del eval_dataset
+    test_dataset = test_dataset.map(mapping_function)
+    test_dataset.save_to_disk(dataset_paths['test'])
+    del test_dataset
+    return
 
 
 def mapped_dataset_exists(dataset_path):
@@ -398,3 +392,10 @@ def mapped_dataset_exists(dataset_path):
     return False
 
 
+def extract_special_token(label_string):
+    import re
+    match = re.search(r'\[\w+\]', label_string)
+    if match:
+        return str(match.group(0))
+    else:
+        return "No token"

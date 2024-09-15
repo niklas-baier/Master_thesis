@@ -1,8 +1,13 @@
-import meeteval
-import wandb
-import preprocessing
-from peftModification import create_peft_model
 
+import meeteval
+import datasets
+
+import wandb
+import pdb
+import preprocessing
+from logrun import log_run
+from peftModification import create_peft_model
+from pathlib import Path
 from preprocessing import setup_paths, load_and_concatenate_json_files, chime_parsing, dipco_parsing, \
     Hug_dataset_creation, prepare_dataset_seq2seq
 from evaluation import compute_chime_metrics, chime_normalisation
@@ -10,23 +15,22 @@ from test_Whisper import suppress_specific_warnings, timing_decorator, run_detai
 from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, extract_session, extract_location, \
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
-from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio
+from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
+    PrintTrainableParamsCallback, freeze_all_layers_but_last
 from notification import send_email
 import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
+# setting the run details
 train_state = 'T'  # ["T","NT"]
 developer_mode = 'Y'  # ['Y','N']
-version = "vanilla"  # ["vanilla","peft"]
+version = "last-layer"  # ["vanilla","peft", "last-layer"]
 task = 'transcribe'  # ["classification","joint","transcribe"]
-
-# dipco_path = "/home/niklas/Downloads/Datasets/Dipco/"
-chime_path_cluster = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-dataset_name = "Chime6"  # ["Chime6", "dipco"]
-environment = "laptop"  # ["laptop","cluster"]
-device = "cuda"  # ["cuda"]
-model_name = model_id = "openai/whisper-tiny.en"  # "openai/whisper-large"
+dataset_name = "dipco"  # ["Chime6", "dipco"]
+environment = "laptop"  # ["laptop","cluster", "bwcluster"]
+device = "cuda"  # ["cuda", "cpu"]
+model_name = model_id = "openai/whisper-tiny"  # "openai/whisper-large"
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
     environment=environment, dataset_name=dataset_name)
@@ -37,8 +41,7 @@ run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environme
 assert run_details_valid(run_details)
 
 import pandas as pd
-import torchaudio
-from train import RunDetails, trained_model_transcription
+
 
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
@@ -49,17 +52,11 @@ transcriptions = df['words']
 
 from transformers import WhisperFeatureExtractor
 
-import inspect
-from datasets import Features, Value
-
 feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
 
-# expanded_df = expanded_df.drop(expanded_df['audio']=='close-talk')
 
 features = preprocessing.generate_features(run_details)
-print(features)
-print("hi")
-# Example usage
+
 
 
 if run_details.dataset_name == 'Chime6':
@@ -68,12 +65,13 @@ if run_details.dataset_name == 'Chime6':
     expanded_df = chime_parsing(train_df, run_details,train_path)
 
 else:
-    expanded_df, temp = dipco_parsing(df, run_details, dev_path)
+    expanded_df, dev_df = dipco_parsing(df, run_details, dev_path)
     #TODO Verify
 
 
-    _, dev_df = dipco_parsing(eval_df, run_details, eval_path)
-    eval_df = temp
+    eval_df, eval_df2 = dipco_parsing(eval_df, run_details, eval_path)
+    eval_df = pd.concat([eval_df,eval_df2])
+
 
 
 import torch
@@ -86,9 +84,7 @@ from datasets import load_dataset
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
 model_id = model_name
 
-from transformers import AutoConfig
 
-print(AutoConfig.from_pretrained(model_id))
 
 tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", language="en")
 dfs = [expanded_df, dev_df, eval_df]
@@ -108,7 +104,7 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 import inspect
 
-train_dataset = train_dataset.map(prepare_dataset_seq2seq)
+
 # TODO
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
@@ -119,51 +115,29 @@ model_str = extract_letters(model_name)
 train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
 eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
 test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
-if preprocessing.mapped_dataset_exists(train_dataset_path):
-    import datasets
-    print("datasets alreaady mapped")
-
-    train_dataset = datasets.load_from_disk(train_dataset_path)
-    eval_dataset = datasets.load_from_disk(eval_dataset_path)
-    test_dataset = datasets.load_from_disk(test_dataset_path)
-else:
-    train_dataset, eval_dataset, test_dataset = preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
+if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
+    print("dataset not mapped yet")
+    dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
+    preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
-                                                                           test_dataset=test_dataset)
-    train_dataset.save_to_disk(train_dataset_path)
-    eval_dataset.save_to_disk(eval_dataset_path)
-    test_dataset.save_to_disk(test_dataset_path)
+                                                                           test_dataset=test_dataset,dataset_paths=dataset_paths)
 
-import os
-from datasets import load_from_disk, Dataset
-
-# Define the path to the dataset directory
-dataset_path = "train.hf"
-
-# Check if the directory exists
-if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
-    try:
-        # Attempt to load the dataset
-        dataset = load_from_disk(dataset_path)
-        print("Dataset loaded.")
-    except Exception as e:
-        print(f"error while loading the dataset: {e}")
-else:
-    print(f"The directory '{dataset_path}' does not exist or is not a directory.")
+train_dataset = datasets.load_from_disk(train_dataset_path)
+eval_dataset = datasets.load_from_disk(eval_dataset_path)
+test_dataset = datasets.load_from_disk(test_dataset_path)
 
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
 )
+num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+print(f"Number of trainable parameters: {num_params}")
 processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
 
-if ("large") in model_id:
+if ("large" or "medium") in model_id:
     processor = AutoProcessor.from_pretrained(model_id, language='en', task="transcribe")
     model.generation_config.language = "English"
     model.generation_config.task = "transcribe"
-
-
-
 
 else:
     processor = AutoProcessor.from_pretrained(model_id)
@@ -178,37 +152,35 @@ pipe = pipeline(
     max_new_tokens=128,
     chunk_length_s=30,
     batch_size=16,
-    return_timestamps=True,
+    return_timestamps=False,
     torch_dtype=torch_dtype,
     device=device
 
 )
 
-from tqdm import tqdm
 
-expanded_df['results'] = ''
-expanded_df = expanded_df.head(10)
-expanded_df.reset_index(drop=True, inplace=True)
-print(expanded_df.shape)
-# load audio and pad/trim it to fit 30 seconds
-from numba import jit
+eval_df['results'] = ''
+
+eval_df.reset_index(drop=True, inplace=True)
 
 
 
 
-
-
-print(expanded_df.columns)
-#expanded_df = transcribe_audio(expanded_df)
-dev = "dev"
 
 import re
 
 # Regex pattern splits on substrings "; " and ", "
-components = re.split('-|/|', model_id)
+components = re.split('-|/|.|', model_id)
 model_size = components[2]
-transcription_csv_path = f'{dataset_name}_{dev}_{model_size[:4]}_{train_state}.csv'
-expanded_df.to_csv(transcription_csv_path, index=False)
+transcription_csv_path = f'{dataset_name}_eval_{model_size}_{train_state}.csv'
+if(Path(transcription_csv_path).is_file()):
+    print("transcription csv already exists")
+    print(transcription_csv_path)
+else:
+    eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
+    eval_df.to_csv(transcription_csv_path, index=False)
+
+
 
 # cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
 
@@ -264,7 +236,8 @@ import jiwer
 # peft
 if version == 'peft':
     model = create_peft_model(model)
-
+elif version == "last-layer":
+    model = freeze_all_layers_but_last(model)
 # training of the model
 from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments
@@ -280,20 +253,7 @@ import evaluate
 
 metric = evaluate.load("wer")
 
-if task == 'classification':
-    metric = evaluate.load("accuracy")
-    dataset = dataset.select_columns('filepath')
-    label2id, id2label = dict(), dict()
-    labels = dataset["train"].features["label"].names
-    num_labels = 4
-    for i, label in enumerate(labels):
-        label2id[label] = str(i)
-        id2label[str(i)] = label
 
-    model = AutoModelForAudioClassification.from_pretrained(
-        model_id, num_labels=num_labels, label2id=label2id, id2label=id2label,
-
-    )
 train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
 training_args = Seq2SeqTrainingArguments(
@@ -329,23 +289,25 @@ trainer = Seq2SeqTrainer(
     data_collator=data_collator,
     compute_metrics=compute_chime_metrics,
     tokenizer=processor.feature_extractor,
+    callbacks= [PrintTrainableParamsCallback()]
 )
 processor.save_pretrained(training_args.output_dir)
 
-# Print evaluation results
-
 
 if train_state == 'NT':
-    pass
+    visualize_results(transcription_csv_path, run_details)
 else:
     trainer.train()
-
     plot_loss(trainer)
     plot_WER(trainer, Run_details=run_details)
+    log_run(run_details=run_details)
+    model_path = output_dir
+    #TODO take it from the model
 
-# Chime Normalization of the results
-model_path = output_dir
-visualize_results(transcription_csv_path, eval_df, run_details)
+    visualize_results(transcription_csv_path, run_details)
+
+
+
 raise ValueError()
 # Load the model from the safetensors file
 # transcriptions = trained_model_transcription(model=model, eval_dataset=eval_dataset, Run_details=Run_details)

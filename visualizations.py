@@ -1,14 +1,15 @@
 import jiwer
+import librosa
 import meeteval
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import re
 import ast
-
+import torch
 import wandb
-
-from evaluation import chime_normalisation
+import numpy as np
+from evaluation import chime_normalisation, analysis_special_tokens
 from preprocessing import get_formated_date
 
 
@@ -89,7 +90,7 @@ def visualize_wer(grouped, type):
     plt.title(f'WER of {model_name} on the {(dataset_name := (type[1]))} dataset')
 
     plt.savefig(f'Figures/{(partition_type := (type[0]))} bar_plot.png', format='png')
-    wandb.log({f"{dataset_name}_{model_name}": plt})
+    wandb.log({f"{dataset_name}_{model_name}": wandb.Image(plt)})
     plt.show()
 
 
@@ -130,13 +131,36 @@ def print_wer(grouped, type):
         print(f"wer {wer}")
 
 #TODO meeteval and wandb
-def visualize_results(transcription_csv_path, eval_df, run_details):
+def plot_histograms(data, run_details):
+    plt.figure(figsize=(10, 6))
+    metric = "wer"
+    data['only'] = data.apply(lambda row: row[metric].error_rate, axis=1)
+    plt.hist(data['only'], bins=100, color='blue', alpha=0.7)
+    plt.title('Histogram of Word Error Rate (WER)')
+    plt.xlabel('WER')
+    plt.ylabel('Frequency')
+    plt.grid(True)
+    hist_path = f'Figures/Training/histograms/{run_details.dataset_name}/{metric}.png'
+    plt.savefig(hist_path,format='png')
+    metric = "cer"
+    hist_path = f'Figures/Training/histograms/{run_details.dataset_name}/{metric}.png'
+    plt.hist(data[metric], bins=100, color='yellow', alpha=0.7)
+    plt.title('Histogram of Word Error Rate (WER)')
+    plt.xlabel('WER')
+    plt.ylabel('Frequency')
+    plt.grid(True)
+    plt.savefig(hist_path,format='png')
+
+
+def visualize_results(transcription_csv_path, run_details):
     data = pd.read_csv(transcription_csv_path)
-    data = eval_df
+
     print(data.head)
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
+    data['results'] = data['results'].astype(str)
+
     data['chime_ref'] = [chime_normalisation(text) for text in data["words"]]
-    data['chime_hyp'] = [chime_normalisation(text) for text in str(data["results"])]
+    data['chime_hyp'] = [chime_normalisation(text) for text in data["results"]]
 
     wer = jiwer.wer(list(data["chime_ref"]), list(data["chime_hyp"]))
     # WER of the whisper normalizer
@@ -150,6 +174,8 @@ def visualize_results(transcription_csv_path, eval_df, run_details):
         ),
         axis=1
     )
+    data['cer'] = data.apply(lambda row: jiwer.cer(reference=row['chime_ref'], hypothesis=row['chime_hyp']), axis=1)
+
 
     ascii_pattern = r'^[\x00-\x7F]*$'
     # Step 3: Filter the DataFrame
@@ -168,6 +194,7 @@ def visualize_results(transcription_csv_path, eval_df, run_details):
     grouped_mic_type = data.groupby('mic_type')
     grouped_mic = data.groupby(['mic_type', 'mic_number'])
     print_wer(grouped_mic, "mic_type")
+    grouped_token = analysis_special_tokens(data)
     print(wer)
 
     # plot visualization of the different sessions and store the results
@@ -183,12 +210,49 @@ def visualize_results(transcription_csv_path, eval_df, run_details):
         print(f"Directory '{directory}' created.")
     else:
         print(f"Directory '{directory}' already exists.")
-    visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_name}"])
-    visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_name}"])
-    visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_name}"])
+    visualize_wer(grouped_token, ["special_token", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    visualize_wer(grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_id}"])
+    plot_histograms(data,run_details=run_details)
+    # TODO sort by WER and CER what percentage is close what percentage
+
 
     error_rates = data['wer'].apply(lambda x: x.error_rate)
 
     # Calculate the mean of the error rates
     mean_error_rate = error_rates.mean()
     print(mean_error_rate)
+
+
+def plot_waveform(waveform, sample_rate):
+    # Assume waveform is 1D (single channel)
+    num_samples = waveform.shape[0]
+    time_axis = np.linspace(0, num_samples / sample_rate, num_samples)
+
+    plt.figure()
+    plt.plot(time_axis, waveform)
+    plt.xlabel('Time [s]')
+    plt.ylabel('Amplitude')
+    plt.title('Waveform')
+    plt.show()
+
+# Example usage
+
+def plot_spec(ax, spec, title):
+    ax.set_title(title)
+    ax.imshow(librosa.amplitude_to_db(spec), origin="lower", aspect="auto")
+    fig, axes = plt.subplots(1, 1, sharex=True, sharey=True)
+    plot_spec(axes[1], torch.abs(spec[0]), title="Original")
+    fig.tight_layout()
+
+
+
+def plot_spectrogram(specgram, title=None, ylabel="freq_bin", ax=None):
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+    if title is not None:
+        ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    power_specgram = np.abs(specgram)**2
+    ax.imshow(librosa.power_to_db(power_specgram), origin="lower", aspect="auto", interpolation="nearest")
