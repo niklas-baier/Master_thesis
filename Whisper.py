@@ -111,10 +111,8 @@ def extract_letters(input_string):
 
 # Example usage
 
-model_str = extract_letters(model_name)
-train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
-eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
-test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
+
+train_dataset_path,eval_dataset_path, test_dataset_path = preprocessing.generate_dataset_paths(run_details=run_details)
 if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
     print("dataset not mapped yet")
     dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}

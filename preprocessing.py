@@ -5,7 +5,6 @@ import re
 import pandas as pd
 from itertools import islice
 
-
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
@@ -30,6 +29,7 @@ def chime_paths(dataset_path):
 
 def setup_paths(environment, dataset_name):
     dataset_path = "/project/data_asr/dipco/Dipco"
+    bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
@@ -41,14 +41,16 @@ def setup_paths(environment, dataset_name):
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
     elif environment == 'bwcluster':
+
         if dataset_name == "Chime6":
             dataset_path = '/home/kit/stud/uhicv'  # '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            dataset_path = bw_workplace_path
             return chime_paths(dataset_path=dataset_path)
 
 
 
         else:
-            dataset_path = '/home/kit/stud/uhicv/Dipco'
+            dataset_path = f'{bw_workplace_path}/Dipco'
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
                 dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, '', ''
@@ -62,6 +64,18 @@ def setup_paths(environment, dataset_name):
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
+def generate_dataset_paths(run_details):
+    from Whisper import extract_letters
+    model_str = extract_letters(run_details.model_id)
+    train_dataset_path = f"{model_str}_{run_details.dataset_name}_train.hf"  # TODO
+    eval_dataset_path = f"{model_str}_{run_details.dataset_name}_eval.hf"
+    test_dataset_path = f"{model_str}_{run_details.dataset_name}_test.hf"
+    if run_details.environment == 'bwcluster':
+        bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
+        train_dataset_path = os.path.join(bw_workplace_path,train_dataset_path)
+        eval_dataset_path = os.path.join(bw_workplace_path,eval_dataset_path)
+        test_dataset_path = os.path.join(bw_workplace_path,test_dataset_path)
+    return train_dataset_path, eval_dataset_path, test_dataset_path
 
 def get_formated_date() -> str:
     return datetime.now().strftime("%m/%d/%Y")
@@ -373,6 +387,9 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
+    if run_details.environment == 'bwcluster':
+        bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
+        dataset_paths = [os.path.join(bw_workplace_path,x) for x in dataset_paths]
     if run_details.train_state == 'T':
         train_dataset = train_dataset.map(mapping_function)
         train_dataset.save_to_disk(dataset_paths['train'])
