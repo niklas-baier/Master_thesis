@@ -16,28 +16,23 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
 from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
-    PrintTrainableParamsCallback, freeze_all_layers_but_last
+    PrintTrainableParamsCallback, freeze_all_layers_but_last, get_parser, transcribe_results
 from notification import send_email
 import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 # setting the run details
-train_state = 'T'  # ["T","NT"]
-developer_mode = 'Y'  # ['Y','N']
-version = "last-layer"  # ["vanilla","peft", "last-layer"]
-task = 'transcribe'  # ["classification","joint","transcribe"]
-dataset_name = "dipco"  # ["Chime6", "dipco"]
-environment = "laptop"  # ["laptop","cluster", "bwcluster"]
-device = "cuda"  # ["cuda", "cpu"]
-model_name = model_id = "openai/whisper-tiny"  # "openai/whisper-large"
+parser = get_parser()
+args = parser.parse_args()
+
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
-    environment=environment, dataset_name=dataset_name)
+    environment=args.environment, dataset_name=args.dataset_name)
 
-run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
-                         train_state=train_state, date=formated_date, version=version, device=device, task=task,
-                         developer_mode=developer_mode)
+run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
+                         train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
+                         developer_mode=args.developer_mode, augmentation=args.augmentation)
 assert run_details_valid(run_details)
 
 import pandas as pd
@@ -52,7 +47,7 @@ transcriptions = df['words']
 
 from transformers import WhisperFeatureExtractor
 
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
+feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
 
 features = preprocessing.generate_features(run_details)
@@ -82,7 +77,7 @@ from transformers import WhisperTokenizer
 from datasets import load_dataset
 
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
-model_id = model_name
+model_id = model_name = run_details.model_id
 
 
 
@@ -90,10 +85,10 @@ tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", langua
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
 
-train_dataset = Hug_dataset_creation(expanded_df,developer_mode,features)
-eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
+train_dataset = Hug_dataset_creation(expanded_df,run_details.developer_mode,features)
+eval_dataset = Hug_dataset_creation(dev_df,run_details.developer_mode,features)
 
-test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
+test_dataset = Hug_dataset_creation(eval_df,run_details.developer_mode,features)
 
 '''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
@@ -102,7 +97,6 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 # dataset = dataset.to_iterable_dataset()
 
 
-import inspect
 
 
 # TODO
@@ -152,7 +146,7 @@ pipe = pipeline(
     batch_size=16,
     return_timestamps=False,
     torch_dtype=torch_dtype,
-    device=device
+    device=run_details.device
 
 )
 
@@ -170,7 +164,7 @@ import re
 # Regex pattern splits on substrings "; " and ", "
 components = re.split('-|/|.|', model_id)
 model_size = components[2]
-transcription_csv_path = f'{dataset_name}_eval_{model_size}_{train_state}.csv'
+transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
 if(Path(transcription_csv_path).is_file()):
     print("transcription csv already exists")
     print(transcription_csv_path)
@@ -232,9 +226,9 @@ ds = transcribe_audio_ds(ds)"""
 import jiwer
 
 # peft
-if version == 'peft':
+if run_details.version == 'peft':
     model = create_peft_model(model)
-elif version == "last-layer":
+elif run_details.version == "last-layer":
     model = freeze_all_layers_but_last(model)
 # training of the model
 from transformers import Seq2SeqTrainer
@@ -246,6 +240,7 @@ data_collator = DataCollatorSpeechSeq2SeqWithPadding(
     processor=processor,
     decoder_start_token_id=model.config.decoder_start_token_id,
 )
+
 
 import evaluate
 
@@ -278,7 +273,7 @@ training_args = Seq2SeqTrainingArguments(
 
 )
 # english_feature_extractor = processor.feature_extractor(language='en')
-print(inspect.signature(processor.feature_extractor))
+
 trainer = Seq2SeqTrainer(
     args=training_args,
     model=model,
@@ -292,55 +287,25 @@ trainer = Seq2SeqTrainer(
 processor.save_pretrained(training_args.output_dir)
 
 
-if train_state == 'NT':
+if run_details.train_state == 'NT':
     visualize_results(transcription_csv_path, run_details)
 else:
     trainer.train()
-    plot_loss(trainer)
+    plot_loss(trainer, run_details=run_details)
     plot_WER(trainer, Run_details=run_details)
     log_run(run_details=run_details)
     model_path = output_dir
     #TODO take it from the model
 
-    visualize_results(transcription_csv_path, run_details)
 
+
+
+transcribe_results(test_dataset=test_dataset,trainer=trainer)
+visualize_results(transcription_csv_path, run_details)
 
 
 raise ValueError()
-# Load the model from the safetensors file
-# transcriptions = trained_model_transcription(model=model, eval_dataset=eval_dataset, Run_details=Run_details)
 
-
-print(inspect.signature(model))
-# Generate the output
-
-# Decode the output
-
-
-"""
-expanded_df = expanded_df.head(10)
-print(dir(expanded_df['results'][0].__str__()))
-print(expanded_df['results'][0].text)
-print(expanded_df['words'][0])
-print((expanded_df['results'].apply(type)))
-def extract_text(result):
-    # Assuming the DecodingResult object has a 'text' attribute
-    return result.text
-
-# Apply the extraction function to the 'results' column
-expanded_df['results_text'] = expanded_df.apply(lambda row: row['results'].text, axis=1)
-#expanded_df['duration'] = expanded_df.apply(lambda row: row['end'] - row['start'], axis=1)
-print(type(expanded_df['results_text'][0]))
-# Calculate WER using the extracted text
-expanded_df['wer'] = expanded_df.apply(
-    lambda row: meeteval.wer.wer.siso.siso_word_error_rate(
-        reference=row['words'], 
-        hypothesis=row['results_text']
-    ), 
-    axis=1
-)
-print(expanded_df['wer'])
-"""
 
 
 

@@ -13,8 +13,7 @@ from evaluation import chime_normalisation, analysis_special_tokens
 from preprocessing import get_formated_date
 
 
-def plot_loss(trainer):
-    from Whisper import dataset_name, model_id,version
+def plot_loss(trainer, run_details):
     from preprocessing import get_formated_date
     df_log = pd.DataFrame(trainer.state.log_history)
     # visualization of the loss during training
@@ -23,7 +22,7 @@ def plot_loss(trainer):
     plt.xlabel("Epochs")
     plt.legend(loc="upper right")
 
-    filepath = f'Figures/Training/LOSS/{dataset_name}/{model_id}/{version}/{get_formated_date()}'
+    filepath = f'Figures/Training/LOSS/{run_details.dataset_name}/{run_details.model_id}/{run_details.version}/{get_formated_date()}'
     try:
         os.makedirs(filepath)
     except FileExistsError:
@@ -91,7 +90,7 @@ def visualize_wer(grouped, type):
 
     plt.savefig(f'Figures/{(partition_type := (type[0]))} bar_plot.png', format='png')
     wandb.log({f"{dataset_name}_{model_name}": wandb.Image(plt)})
-    plt.show()
+
 
 
 # looking at the results from the individual sessions

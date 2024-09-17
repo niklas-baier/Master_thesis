@@ -263,7 +263,6 @@ def chime_parsing(dataframe, run_details,mode_path):
 
 def dipco_parsing(dataframe, run_details, mode_path):
     # Apply the function to each row and concatenate the results
-    print("DataFrame Columns:", dataframe.columns)
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
     dataframe = dataframe.drop(columns=['start_time'])

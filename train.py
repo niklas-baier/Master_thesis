@@ -6,6 +6,8 @@ from transformers import WhisperTokenizer, TrainerCallback
 from tqdm import tqdm
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
+from argparse import ArgumentParser
+from pathlib import Path
 
 @dataclass
 @final
@@ -19,6 +21,7 @@ class RunDetails:
     device: str # cuda
     task: str #classification or transciption or joint
     developer_mode: str # small datasets?
+    augmentation: str # use of synthetic noise augmentation
 
 @dataclass
 class DataDetails:
@@ -366,3 +369,42 @@ def freeze_all_layers_but_last(model):
         for param in last_layer.parameters():
             param.requires_grad = True
     return model
+
+
+def parse_args():
+    def parse_args():
+        parser = ArgumentParser(
+            description="Rename uttid and wavid to filter out repeated utterances"
+        )
+        parser.add_argument("--input", type=Path, help="Input data directory.")
+        parser.add_argument("--output", type=Path, help="Output data directory.")
+        args = parser.parse_args()
+        return args
+
+
+def get_parser():
+    import argparse
+    parser = argparse.ArgumentParser(description="RunDetails argument parser")
+
+    parser.add_argument('--dataset_name', type=str, required=True, help='Name of the dataset')
+    parser.add_argument('--model_id', type=str, required=True, help='Name of the model')
+    parser.add_argument('--version', type=str, required=True, help='Model version (plain or modified)')
+    parser.add_argument('--environment', type=str, choices=['laptop', 'cluster','bwcluster'], required=True,
+                        help='Execution environment (laptop or cluster)')
+    parser.add_argument('--train_state', type=str, choices=['T', 'NT'], required=True,
+                        help='Is training wanted? (T(raining) / N(o)T(raining)')
+    parser.add_argument('--date', type=str, default=datetime.now().strftime('%Y-%m-%d'),
+                        help='Current date (default: today)')
+    parser.add_argument('--device', type=str, required=True, help='Device to be used (e.g., cuda or cpu)')
+    parser.add_argument('--task', type=str, choices=['classification', 'transcribe', 'joint'], required=True,
+                        help='Task type (classification, transcription, or joint)')
+    parser.add_argument('--developer_mode', type=str, choices=['Y', 'N'], required=True,
+                        help='Developer mode (yes for small datasets, no for full training)')
+    parser.add_argument('--augmentation', type=str, choices=['Y', 'N'], required=True,
+                        help='Use synthetic noise augmentation can be Y(es) or N(o)')
+
+    return parser
+
+def transcribe_results(*, test_dataset, trainer):
+    results = trainer.evaluate(eval_dataset=test_dataset)
+    print(results)
