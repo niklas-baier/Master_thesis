@@ -8,6 +8,7 @@ from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
 from argparse import ArgumentParser
 from pathlib import Path
+import os
 
 @dataclass
 @final
@@ -405,6 +406,37 @@ def get_parser():
 
     return parser
 
-def transcribe_results(*, test_dataset, trainer):
-    results = trainer.evaluate(eval_dataset=test_dataset)
-    print(results)
+def transcribe_results(*, test_dataset, trainer, transcription_csv_path,run_details):
+    def add_prediction_column(words, labels_trained, temp):
+        if words == labels_trained:
+            return temp
+        else:
+            print("words " +words)
+            print("labels_trained " +labels_trained)
+            return temp
+
+
+
+    trainer.evaluate(eval_dataset=test_dataset)
+    results_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
+    file_path = os.path.join(results_directory, "results.json")
+    results = pd.read_json(file_path)
+    test_df = pd.read_csv("shuffled_test_dataframe.csv")
+    assert results.shape[0] == test_df.shape[0]
+    test_df['labels_trained'] = results['labels']
+    test_df['temp'] = results['predictions']
+    test_df['results'] = test_df.apply(lambda row: add_prediction_column(row['words'],row['temp'], row['labels_trained']), axis=1)
+    test_df.drop(columns=['temp','labels_trained'])
+    model_size = get_model_size(run_details.model_id)
+    trained_path = f'{run_details.dataset_name}_eval_{model_size}_trained.csv'
+    test_df.to_csv(trained_path, index=False)
+    return trained_path
+
+
+def get_model_size(model_id):
+    import re
+
+    # Regex pattern splits on substrings "; " and ", "
+    components = re.split('-|/|.|', model_id)
+    model_size = components[2]
+    return model_size

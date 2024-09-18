@@ -1,3 +1,4 @@
+import cProfile
 
 import meeteval
 import datasets
@@ -16,7 +17,7 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
 from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
-    PrintTrainableParamsCallback, freeze_all_layers_but_last, get_parser, transcribe_results
+    PrintTrainableParamsCallback, freeze_all_layers_but_last, get_parser, transcribe_results, get_model_size
 from notification import send_email
 import os
 os.environ['WANDB_PROJECT'] = 'WHISPER'
@@ -69,6 +70,7 @@ else:
 
 
 
+
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
@@ -85,19 +87,15 @@ tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", langua
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
 
-train_dataset = Hug_dataset_creation(expanded_df,run_details.developer_mode,features)
-eval_dataset = Hug_dataset_creation(dev_df,run_details.developer_mode,features)
+train_dataset = Hug_dataset_creation(expanded_df,run_details.developer_mode,features, test_dataset=False)
+eval_dataset = Hug_dataset_creation(dev_df,run_details.developer_mode,features, test_dataset=False)
 
-test_dataset = Hug_dataset_creation(eval_df,run_details.developer_mode,features)
-
+test_dataset = Hug_dataset_creation(eval_df,run_details.developer_mode,features, test_dataset=True)
 '''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
 train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 # dataset = dataset.to_iterable_dataset()
-
-
-
 
 # TODO
 def extract_letters(input_string):
@@ -155,15 +153,7 @@ eval_df['results'] = ''
 
 eval_df.reset_index(drop=True, inplace=True)
 
-
-
-
-
-import re
-
-# Regex pattern splits on substrings "; " and ", "
-components = re.split('-|/|.|', model_id)
-model_size = components[2]
+model_size = get_model_size(run_details.model_id)
 transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
 if(Path(transcription_csv_path).is_file()):
     print("transcription csv already exists")
@@ -175,15 +165,6 @@ else:
 
 
 # cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
-
-
-# cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
-
-# result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
-
-
-
-
 
 """@suppress_specific_warnings
 @timing_decorator
@@ -300,9 +281,13 @@ else:
 
 
 
-transcribe_results(test_dataset=test_dataset,trainer=trainer)
-visualize_results(transcription_csv_path, run_details)
+import time
 
+
+# significantly faster than pandas dataframe
+transcription_csv_path_trained = transcribe_results(test_dataset=test_dataset,trainer=trainer,transcription_csv_path=transcription_csv_path, run_details=run_details)
+
+visualize_results(transcription_csv_path_trained, run_details)
 
 raise ValueError()
 

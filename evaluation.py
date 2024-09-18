@@ -71,10 +71,11 @@ def compute_chime_metrics(pred):
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
     results = {"predictions": pred_str, "labels": label_str}
-    results_directory = str(f"{model_id}_{run_details.dataset_name}_{run_details.version}_{get_formated_date()}")
+    results_directory = str(f"{model_id}_{run_details.dataset_name}_{run_details.version}")
     if not os.path.exists(results_directory):
         os.makedirs(results_directory)
     file_path = os.path.join(results_directory, "results.json")
+
     with open(file_path, "w") as f:
         json.dump(results, f, indent=4)
 

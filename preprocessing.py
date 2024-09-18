@@ -288,6 +288,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
 
+
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
     train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
@@ -295,7 +296,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
     train_dataframe.reset_index(drop=True, inplace=True)
     test_dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
-        return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
+        return train_dataframe.sample(n=100,random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
         return train_dataframe, test_dataframe
 '''def train_test_split(dataframe, run_details):
@@ -338,7 +339,7 @@ def generate_features(run_details):
 
 
 
-def Hug_dataset_creation(expanded_df, developer_mode,features):
+def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
@@ -348,11 +349,21 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 
 
     dataset = Dataset.from_pandas(expanded_df, features=features)
-    shuffled_dataset = dataset.shuffle(seed=42)
+    #TODO seems to change everytime
+    shuffled_dataset = dataset
+
 
     if developer_mode == 'Y':
 
         shuffled_dataset = shuffled_dataset.select(range(100))
+        if test_dataset:
+            shuffled_test_dataframe = shuffled_dataset.to_pandas()
+            shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
+        return shuffled_dataset
+
+    if test_dataset:
+        shuffled_test_dataframe = shuffled_dataset.to_pandas()
+        shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
 
     return shuffled_dataset
 
@@ -388,7 +399,8 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
     if run_details.environment == 'bwcluster':
         bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
-        dataset_paths = [os.path.join(bw_workplace_path,x) for x in dataset_paths]
+        dataset_paths = {os.path.join(bw_workplace_path,x) for x in dataset_paths}
+        dataset_paths = {key: os.path.join(bw_workplace_path, value) for key, value in dataset_paths.items()}
     if run_details.train_state == 'T':
         train_dataset = train_dataset.map(mapping_function)
         train_dataset.save_to_disk(dataset_paths['train'])
