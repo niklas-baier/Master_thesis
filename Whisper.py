@@ -38,7 +38,6 @@ assert run_details_valid(run_details)
 
 import pandas as pd
 
-
 df = load_and_concatenate_json_files(transcript_dev_path)
 eval_df = load_and_concatenate_json_files(transcript_eval_path)
 if run_details.dataset_name == 'Chime6':
@@ -100,7 +99,6 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 # TODO
 
 # Example usage
-
 
 train_dataset_path,eval_dataset_path, test_dataset_path = preprocessing.generate_dataset_paths(run_details=run_details)
 if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
@@ -200,10 +198,8 @@ print(expanded_df.columns)
 
 ds = Dataset.from_pandas(expanded_df)
 ds = transcribe_audio_ds(ds)"""
-
 # chime normalization
 import jiwer
-
 # peft
 if run_details.version == 'peft':
     model = create_peft_model(model)

@@ -29,7 +29,7 @@ def chime_paths(dataset_path):
 
 def setup_paths(environment, dataset_name):
     dataset_path = "/project/data_asr/dipco/Dipco"
-    bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
+    bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah/Chime6'
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
@@ -396,10 +396,6 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
-    if run_details.environment == 'bwcluster':
-        bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
-        dataset_paths = {os.path.join(bw_workplace_path,x) for x in dataset_paths}
-        dataset_paths = {key: os.path.join(bw_workplace_path, value) for key, value in dataset_paths.items()}
     if run_details.train_state == 'T':
         train_dataset = train_dataset.map(mapping_function)
         train_dataset.save_to_disk(dataset_paths['train'])

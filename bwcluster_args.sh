@@ -1,8 +1,8 @@
 #!/bin/bash
 
-python3 Whisper.py --dataset_name "dipco" \
+python3 Whisper.py --dataset_name "Chime6" \
                    --model_id "openai/whisper-large-v3" \
-                   --version "peft" \
+                   --version "vanilla" \
                    --environment "bwcluster" \
                    --train_state "T" \
                    --device "cuda" \
