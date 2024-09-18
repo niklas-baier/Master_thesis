@@ -65,7 +65,6 @@ def setup_paths(environment, dataset_name):
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
 def generate_dataset_paths(run_details):
-    from Whisper import extract_letters
     model_str = extract_letters(run_details.model_id)
     train_dataset_path = f"{model_str}_{run_details.dataset_name}_train.hf"  # TODO
     eval_dataset_path = f"{model_str}_{run_details.dataset_name}_eval.hf"
@@ -427,3 +426,6 @@ def extract_special_token(label_string):
         return str(match.group(0))
     else:
         return "No token"
+
+def extract_letters(input_string):
+    return ''.join([char for char in input_string if char.isalpha()])

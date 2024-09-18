@@ -98,8 +98,6 @@ train_dataset, eval_dataset, test_dataset = datasets.values()'''
 # dataset = dataset.to_iterable_dataset()
 
 # TODO
-def extract_letters(input_string):
-    return ''.join([char for char in input_string if char.isalpha()])
 
 # Example usage
 
