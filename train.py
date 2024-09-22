@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer, TrainerCallback
+from transformers import WhisperTokenizer, TrainerCallback, pipeline
 from tqdm import tqdm
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
@@ -440,3 +440,29 @@ def get_model_size(model_id):
     components = re.split('-|/|.|', model_id)
     model_size = components[2]
     return model_size
+
+def transcribe_raw(eval_df,model,processor, run_details,torch_dtype):
+
+    pipe = pipeline(
+        "automatic-speech-recognition",
+        model=model,
+        tokenizer=processor.tokenizer,
+        feature_extractor=processor.feature_extractor,
+        max_new_tokens=128,
+        chunk_length_s=30,
+        batch_size=16,
+        return_timestamps=False,
+        torch_dtype=torch_dtype,
+        device=run_details.device
+
+    )
+    model_size = get_model_size(run_details.model_id)
+    transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
+    if (Path(transcription_csv_path).is_file()):
+        print("transcription csv already exists")
+        print(transcription_csv_path)
+    else:
+        eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
+        eval_df.to_csv(transcription_csv_path, index=False)
+
+

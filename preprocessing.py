@@ -44,7 +44,7 @@ def setup_paths(environment, dataset_name):
 
         if dataset_name == "Chime6":
             dataset_path = '/home/kit/stud/uhicv'  # '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-            dataset_path = os.path.join(bw_workplace_path,"Chime6")
+            dataset_path = os.path.join(bw_workplace_path, "Chime6")
             return chime_paths(dataset_path=dataset_path)
 
 
