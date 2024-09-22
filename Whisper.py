@@ -1,10 +1,14 @@
+import cProfile
 
 import meeteval
 import datasets
 
 import wandb
 import pdb
+import pandas as pd
+from transformers import WhisperFeatureExtractor
 import preprocessing
+from augmentations import generate_noise_dataset
 from logrun import log_run
 from peftModification import create_peft_model
 from pathlib import Path
@@ -16,31 +20,33 @@ from visualizations import plot_WER, plot_loss, visualize_wer, extract_person, e
     print_wer, visualize_results
 from transformers import WhisperTokenizer, AutoModelForAudioClassification
 from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, transcribe_audio, \
-    PrintTrainableParamsCallback, freeze_all_layers_but_last
+    PrintTrainableParamsCallback, freeze_all_layers_but_last, get_parser, transcribe_results, get_model_size, \
+    transcribe_raw
 from notification import send_email
 import os
+import torch
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+
+from transformers import WhisperTokenizer
+from datasets import load_dataset
+
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 #wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
 # setting the run details
-train_state = 'T'  # ["T","NT"]
-developer_mode = 'Y'  # ['Y','N']
-version = "last-layer"  # ["vanilla","peft", "last-layer"]
-task = 'transcribe'  # ["classification","joint","transcribe"]
-dataset_name = "dipco"  # ["Chime6", "dipco"]
-environment = "laptop"  # ["laptop","cluster", "bwcluster"]
-device = "cuda"  # ["cuda", "cpu"]
-model_name = model_id = "openai/whisper-tiny"  # "openai/whisper-large"
+parser = get_parser()
+args = parser.parse_args()
+
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
-    environment=environment, dataset_name=dataset_name)
+    environment=args.environment, dataset_name=args.dataset_name)
 
-run_details = RunDetails(dataset_name=dataset_name, model_id=model_id, environment=environment,
-                         train_state=train_state, date=formated_date, version=version, device=device, task=task,
-                         developer_mode=developer_mode)
+run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
+                         train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
+                         developer_mode=args.developer_mode, augmentation=args.augmentation)
 assert run_details_valid(run_details)
 
-import pandas as pd
 
 
 df = load_and_concatenate_json_files(transcript_dev_path)
@@ -50,9 +56,9 @@ if run_details.dataset_name == 'Chime6':
 
 transcriptions = df['words']
 
-from transformers import WhisperFeatureExtractor
 
-feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
+
+feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
 
 features = preprocessing.generate_features(run_details)
@@ -74,15 +80,10 @@ else:
 
 
 
-import torch
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
-from transformers import WhisperTokenizer
-from datasets import load_dataset
 
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
-model_id = model_name
+model_id = model_name = run_details.model_id
 
 
 
@@ -90,31 +91,21 @@ tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", langua
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
 
-train_dataset = Hug_dataset_creation(expanded_df,developer_mode,features)
-eval_dataset = Hug_dataset_creation(dev_df,developer_mode,features)
+train_dataset = Hug_dataset_creation(expanded_df,run_details.developer_mode,features, test_dataset=False)
+eval_dataset = Hug_dataset_creation(dev_df,run_details.developer_mode,features, test_dataset=False)
 
-test_dataset = Hug_dataset_creation(eval_df,developer_mode,features)
-
+test_dataset = Hug_dataset_creation(eval_df,run_details.developer_mode,features, test_dataset=True)
 '''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
 train_dataset, eval_dataset, test_dataset = datasets.values()'''
 
 # dataset = dataset.to_iterable_dataset()
 
-
-import inspect
-
-
 # TODO
-def extract_letters(input_string):
-    return ''.join([char for char in input_string if char.isalpha()])
 
 # Example usage
 
-model_str = extract_letters(model_name)
-train_dataset_path = f"{model_str}_{dataset_name}_train.hf" #TODO
-eval_dataset_path = f"{model_str}_{dataset_name}_eval.hf"
-test_dataset_path = f"{model_str}_{dataset_name}_test.hf"
+train_dataset_path,eval_dataset_path, test_dataset_path = preprocessing.generate_dataset_paths(run_details=run_details)
 if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
     print("dataset not mapped yet")
     dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
@@ -123,8 +114,16 @@ if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
                                                                            test_dataset=test_dataset,dataset_paths=dataset_paths)
 
 train_dataset = datasets.load_from_disk(train_dataset_path)
+
+if args.augmentation == "Y":
+    noisy_train_dataset_path = "noise"+ train_dataset_path
+    if not(preprocessing.mapped_dataset_exists(noisy_train_dataset_path)) :
+        breakpoint()
+        noisy_train_dataset_path = generate_noise_dataset(expanded_df=expanded_df,run_details= run_details,features=features)
+    train_dataset = datasets.load_from_disk(noisy_train_dataset_path)
 eval_dataset = datasets.load_from_disk(eval_dataset_path)
 test_dataset = datasets.load_from_disk(test_dataset_path)
+
 
 model = WhisperForConditionalGeneration.from_pretrained(
     model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
@@ -144,110 +143,32 @@ else:
 
 model.generation_config.forced_decoder_ids = None
 
-pipe = pipeline(
-    "automatic-speech-recognition",
-    model=model,
-    tokenizer=processor.tokenizer,
-    feature_extractor=processor.feature_extractor,
-    max_new_tokens=128,
-    chunk_length_s=30,
-    batch_size=16,
-    return_timestamps=False,
-    torch_dtype=torch_dtype,
-    device=device
-
-)
 
 
 eval_df['results'] = ''
 
 eval_df.reset_index(drop=True, inplace=True)
-
-
-
-
-
-import re
-
-# Regex pattern splits on substrings "; " and ", "
-components = re.split('-|/|.|', model_id)
-model_size = components[2]
-transcription_csv_path = f'{dataset_name}_eval_{model_size}_{train_state}.csv'
-if(Path(transcription_csv_path).is_file()):
-    print("transcription csv already exists")
-    print(transcription_csv_path)
-else:
-    eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
-    eval_df.to_csv(transcription_csv_path, index=False)
-
-
+model_size = get_model_size(run_details.model_id)
+transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
+eval_df.to_csv(transcription_csv_path, index=False)
 
 # cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
 
 
-# cProfile.run("transcribe_audio(expanded_df,model)", 'whisper_resultssmall.prof')
-
-# result the load audio function takes a quarter of the time when the snippets are cut into lenghts of 1:10th
-
-
-
-
-
-"""@suppress_specific_warnings
-@timing_decorator
-def transcribe_audio_ds(dataset: Dataset, batch_size=8):
-    results = []
-
-    for i in tqdm(range(0, len(dataset), batch_size)):
-        batch = dataset.select(range(i, min(i + batch_size, len(dataset))))
-
-        for example in batch:
-            audio, _ = torchaudio.load(
-                example['file_path'], 
-                frame_offset=example['startframe'], 
-                num_frames=example['num_frames']
-            )
-            audio_data = audio.squeeze().numpy()
-
-            if "openai/whisper-large" in model_id:
-                result = pipe(audio_data, generate_kwargs={"language": "english"})
-            else:
-                result = pipe(audio_data)
-
-            # Collect result for each item in the batch
-            results.append(result['text'])
-
-    # Add results to the dataset
-
-    dataset = dataset.add_column("results", results)
-    return dataset
-
-# Example usage
-# Assuming you have a Hugging Face dataset `ds` with columns 'file_path', 'startframe', and 'num_frames'
-#expanded_df.drop(columns=['results'], inplace=True)
-print(expanded_df.columns)
-
-ds = Dataset.from_pandas(expanded_df)
-ds = transcribe_audio_ds(ds)"""
-
-# chime normalization
-import jiwer
-
-# peft
-if version == 'peft':
+if run_details.version == 'peft':
     model = create_peft_model(model)
-elif version == "last-layer":
+elif run_details.version == "last-layer":
     model = freeze_all_layers_but_last(model)
 # training of the model
 from transformers import Seq2SeqTrainer
 from transformers import Seq2SeqTrainingArguments
-import torch
 
 
 data_collator = DataCollatorSpeechSeq2SeqWithPadding(
     processor=processor,
     decoder_start_token_id=model.config.decoder_start_token_id,
 )
+
 
 import evaluate
 
@@ -280,7 +201,7 @@ training_args = Seq2SeqTrainingArguments(
 
 )
 # english_feature_extractor = processor.feature_extractor(language='en')
-print(inspect.signature(processor.feature_extractor))
+
 trainer = Seq2SeqTrainer(
     args=training_args,
     model=model,
@@ -294,55 +215,30 @@ trainer = Seq2SeqTrainer(
 processor.save_pretrained(training_args.output_dir)
 
 
-if train_state == 'NT':
+if run_details.train_state == 'NT':
+    transcription_csv_path = transcribe_raw(model=model, run_details=run_details, transcription_csv_path=transcription_csv_path, torch_dtype=torch_dtype,eval_df=eval_df, processor=processor)
     visualize_results(transcription_csv_path, run_details)
 else:
     trainer.train()
-    plot_loss(trainer)
+    plot_loss(trainer, run_details=run_details)
     plot_WER(trainer, Run_details=run_details)
     log_run(run_details=run_details)
     model_path = output_dir
     #TODO take it from the model
 
-    visualize_results(transcription_csv_path, run_details)
 
 
+
+import time
+
+
+# significantly faster than pandas dataframe
+transcription_csv_path_trained = transcribe_results(test_dataset=test_dataset,trainer=trainer,transcription_csv_path=transcription_csv_path, run_details=run_details)
+
+visualize_results(transcription_csv_path_trained, run_details)
 
 raise ValueError()
-# Load the model from the safetensors file
-# transcriptions = trained_model_transcription(model=model, eval_dataset=eval_dataset, Run_details=Run_details)
 
-
-print(inspect.signature(model))
-# Generate the output
-
-# Decode the output
-
-
-"""
-expanded_df = expanded_df.head(10)
-print(dir(expanded_df['results'][0].__str__()))
-print(expanded_df['results'][0].text)
-print(expanded_df['words'][0])
-print((expanded_df['results'].apply(type)))
-def extract_text(result):
-    # Assuming the DecodingResult object has a 'text' attribute
-    return result.text
-
-# Apply the extraction function to the 'results' column
-expanded_df['results_text'] = expanded_df.apply(lambda row: row['results'].text, axis=1)
-#expanded_df['duration'] = expanded_df.apply(lambda row: row['end'] - row['start'], axis=1)
-print(type(expanded_df['results_text'][0]))
-# Calculate WER using the extracted text
-expanded_df['wer'] = expanded_df.apply(
-    lambda row: meeteval.wer.wer.siso.siso_word_error_rate(
-        reference=row['words'], 
-        hypothesis=row['results_text']
-    ), 
-    axis=1
-)
-print(expanded_df['wer'])
-"""
 
 
 

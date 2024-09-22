@@ -2,10 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer, TrainerCallback
+from transformers import WhisperTokenizer, TrainerCallback, pipeline
 from tqdm import tqdm
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
+from argparse import ArgumentParser
+from pathlib import Path
+import os
 
 @dataclass
 @final
@@ -19,6 +22,7 @@ class RunDetails:
     device: str # cuda
     task: str #classification or transciption or joint
     developer_mode: str # small datasets?
+    augmentation: str # use of synthetic noise augmentation
 
 @dataclass
 class DataDetails:
@@ -366,3 +370,99 @@ def freeze_all_layers_but_last(model):
         for param in last_layer.parameters():
             param.requires_grad = True
     return model
+
+
+def parse_args():
+    def parse_args():
+        parser = ArgumentParser(
+            description="Rename uttid and wavid to filter out repeated utterances"
+        )
+        parser.add_argument("--input", type=Path, help="Input data directory.")
+        parser.add_argument("--output", type=Path, help="Output data directory.")
+        args = parser.parse_args()
+        return args
+
+
+def get_parser():
+    import argparse
+    parser = argparse.ArgumentParser(description="RunDetails argument parser")
+
+    parser.add_argument('--dataset_name', type=str, required=True, help='Name of the dataset')
+    parser.add_argument('--model_id', type=str, required=True, help='Name of the model')
+    parser.add_argument('--version', type=str, required=True, help='Model version (plain or modified)')
+    parser.add_argument('--environment', type=str, choices=['laptop', 'cluster','bwcluster'], required=True,
+                        help='Execution environment (laptop or cluster)')
+    parser.add_argument('--train_state', type=str, choices=['T', 'NT'], required=True,
+                        help='Is training wanted? (T(raining) / N(o)T(raining)')
+    parser.add_argument('--date', type=str, default=datetime.now().strftime('%Y-%m-%d'),
+                        help='Current date (default: today)')
+    parser.add_argument('--device', type=str, required=True, help='Device to be used (e.g., cuda or cpu)')
+    parser.add_argument('--task', type=str, choices=['classification', 'transcribe', 'joint'], required=True,
+                        help='Task type (classification, transcription, or joint)')
+    parser.add_argument('--developer_mode', type=str, choices=['Y', 'N'], required=True,
+                        help='Developer mode (yes for small datasets, no for full training)')
+    parser.add_argument('--augmentation', type=str, choices=['Y', 'N'], required=True,
+                        help='Use synthetic noise augmentation can be Y(es) or N(o)')
+
+    return parser
+
+def transcribe_results(*, test_dataset, trainer, transcription_csv_path,run_details):
+    def add_prediction_column(words, labels_trained, temp):
+        if words == labels_trained:
+            return temp
+        else:
+            print("words " +words)
+            print("labels_trained " +labels_trained)
+            return temp
+
+
+
+    trainer.evaluate(eval_dataset=test_dataset)
+    results_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
+    file_path = os.path.join(results_directory, "results.json")
+    results = pd.read_json(file_path)
+    test_df = pd.read_csv("shuffled_test_dataframe.csv")
+    assert results.shape[0] == test_df.shape[0]
+    test_df['labels_trained'] = results['labels']
+    test_df['temp'] = results['predictions']
+    test_df['results'] = test_df.apply(lambda row: add_prediction_column(row['words'],row['temp'], row['labels_trained']), axis=1)
+    test_df.drop(columns=['temp','labels_trained'])
+    model_size = get_model_size(run_details.model_id)
+    trained_path = f'{run_details.dataset_name}_eval_{model_size}_trained.csv'
+    test_df.to_csv(trained_path, index=False)
+    return trained_path
+
+
+def get_model_size(model_id):
+    import re
+
+    # Regex pattern splits on substrings "; " and ", "
+    components = re.split('-|/|.|', model_id)
+    model_size = components[2]
+    return model_size
+
+def transcribe_raw(eval_df,model,processor, run_details,torch_dtype):
+
+    pipe = pipeline(
+        "automatic-speech-recognition",
+        model=model,
+        tokenizer=processor.tokenizer,
+        feature_extractor=processor.feature_extractor,
+        max_new_tokens=128,
+        chunk_length_s=30,
+        batch_size=16,
+        return_timestamps=False,
+        torch_dtype=torch_dtype,
+        device=run_details.device
+
+    )
+    model_size = get_model_size(run_details.model_id)
+    transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
+    if (Path(transcription_csv_path).is_file()):
+        print("transcription csv already exists")
+        print(transcription_csv_path)
+    else:
+        eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
+        eval_df.to_csv(transcription_csv_path, index=False)
+
+

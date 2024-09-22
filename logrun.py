@@ -9,7 +9,7 @@ from preprocessing import get_formated_date
 
 
 def log_run(run_details):
-    results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}_{get_formated_date()}/results.json")
+    results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
     #TODO
     results['wer'] = results.apply(lambda row: meeteval.wer.wer.siso.siso_word_error_rate(row['predictions'], row['labels']), axis=1)

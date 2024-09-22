@@ -5,7 +5,6 @@ import re
 import pandas as pd
 from itertools import islice
 
-
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
@@ -30,6 +29,7 @@ def chime_paths(dataset_path):
 
 def setup_paths(environment, dataset_name):
     dataset_path = "/project/data_asr/dipco/Dipco"
+    bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
@@ -41,14 +41,16 @@ def setup_paths(environment, dataset_name):
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
     elif environment == 'bwcluster':
+
         if dataset_name == "Chime6":
             dataset_path = '/home/kit/stud/uhicv'  # '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
+            dataset_path = os.path.join(bw_workplace_path, "Chime6")
             return chime_paths(dataset_path=dataset_path)
 
 
 
         else:
-            dataset_path = '/home/kit/stud/uhicv/Dipco'
+            dataset_path = f'{bw_workplace_path}/Dipco'
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
                 dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, '', ''
@@ -62,6 +64,17 @@ def setup_paths(environment, dataset_name):
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
+def generate_dataset_paths(run_details):
+    model_str = extract_letters(run_details.model_id)
+    train_dataset_path = f"{model_str}_{run_details.dataset_name}_train.hf"  # TODO
+    eval_dataset_path = f"{model_str}_{run_details.dataset_name}_eval.hf"
+    test_dataset_path = f"{model_str}_{run_details.dataset_name}_test.hf"
+    if run_details.environment == 'bwcluster':
+        bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
+        train_dataset_path = os.path.join(bw_workplace_path,train_dataset_path)
+        eval_dataset_path = os.path.join(bw_workplace_path,eval_dataset_path)
+        test_dataset_path = os.path.join(bw_workplace_path,test_dataset_path)
+    return train_dataset_path, eval_dataset_path, test_dataset_path
 
 def get_formated_date() -> str:
     return datetime.now().strftime("%m/%d/%Y")
@@ -249,7 +262,6 @@ def chime_parsing(dataframe, run_details,mode_path):
 
 def dipco_parsing(dataframe, run_details, mode_path):
     # Apply the function to each row and concatenate the results
-    print("DataFrame Columns:", dataframe.columns)
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
     dataframe = dataframe.drop(columns=['start_time'])
@@ -275,6 +287,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
 
+
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
     train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
@@ -282,7 +295,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
     train_dataframe.reset_index(drop=True, inplace=True)
     test_dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
-        return train_dataframe.sample(n=100), test_dataframe.sample(n=100)
+        return train_dataframe.sample(n=100,random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
         return train_dataframe, test_dataframe
 '''def train_test_split(dataframe, run_details):
@@ -325,7 +338,7 @@ def generate_features(run_details):
 
 
 
-def Hug_dataset_creation(expanded_df, developer_mode,features):
+def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
@@ -335,11 +348,21 @@ def Hug_dataset_creation(expanded_df, developer_mode,features):
 
 
     dataset = Dataset.from_pandas(expanded_df, features=features)
-    shuffled_dataset = dataset.shuffle(seed=42)
+    #TODO seems to change everytime
+    shuffled_dataset = dataset
+
 
     if developer_mode == 'Y':
 
         shuffled_dataset = shuffled_dataset.select(range(100))
+        if test_dataset:
+            shuffled_test_dataframe = shuffled_dataset.to_pandas()
+            shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
+        return shuffled_dataset
+
+    if test_dataset:
+        shuffled_test_dataframe = shuffled_dataset.to_pandas()
+        shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
 
     return shuffled_dataset
 
@@ -399,3 +422,6 @@ def extract_special_token(label_string):
         return str(match.group(0))
     else:
         return "No token"
+
+def extract_letters(input_string):
+    return ''.join([char for char in input_string if char.isalpha()])
