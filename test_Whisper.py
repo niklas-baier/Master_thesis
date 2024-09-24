@@ -43,7 +43,13 @@ def run_details_valid(run_details):
                                 print(f"{run_details.model_id} as model_name valid")
                                 if run_details.developer_mode in ['Y','N']:
                                     print(f"{run_details.developer_mode} as development_mode valid")
-                                    return True
+                                    if run_details.augmentation in ['Y', 'N']:
+                                        print(f"{run_details.augmentation} as augmentation mode valid")
+                                        if run_details.augmentation == ['Y']:
+                                            assert run_details.train_state == "T", "augmentation only in training mode valid"
+
+
+                                        return True
 
     return False
 

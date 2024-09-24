@@ -5,7 +5,6 @@ from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
 import json
 import os
 import numpy as np
-from preprocessing import get_formated_date, extract_special_token
 import evaluate
 
 def chime_normalisation(input:str) -> str:
@@ -125,6 +124,7 @@ def meeteval():
     print(wer)
 
 def analysis_special_tokens(results):
+    from preprocessing import extract_special_token
     results['token'] = results.apply(lambda row: extract_special_token(row['words']), axis=1)
     grouped_train = results.groupby(['token'])
     allowed_tokens = ["[noise]", "[laugh]", "[unintelligible]", "No token", "[laughs]"]  #

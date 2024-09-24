@@ -465,4 +465,6 @@ def transcribe_raw(eval_df,model,processor, run_details,torch_dtype):
         eval_df = transcribe_audio(eval_df=eval_df, pipe=pipe, run_details=run_details)
         eval_df.to_csv(transcription_csv_path, index=False)
 
+    return transcription_csv_path
+
 

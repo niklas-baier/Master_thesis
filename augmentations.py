@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import pandas as pd
 import torchaudio
-from IPython.display import Audio
 import sounddevice as sd
 import torchaudio.transforms as T
 import torchaudio.functional as F
@@ -37,10 +36,10 @@ def create_augmentations():
     spec_12 = stretch(spec, overriding_rate=1.2)
     spec_09 = stretch(spec, overriding_rate=0.9)
 
-get_noises()
 def apply_noises(filepath_original_sound,filepath_synthetic_noise, snrs):
-    speech, sr = torchaudio.load(filepath_original_sound, sample_rate=16000)
-    noise, syn_sr = torchaudio.load(filepath_original_sound, sample_rate=16000)
+    speech, sr = torchaudio.load(filepath_original_sound)
+    noise, syn_sr = torchaudio.load(filepath_original_sound)
+    assert sr== syn_sr, f"the sample rates of the speech {sr} and of the noise {syn_sr}are different and need to be resampled "
     noise = noise[:, :min(speech.shape[1], noise.shape[1])]
     snr_dbs = torch.tensor([20, 10, 3])
     noise = torch.nn.functional.pad(noise, (0, speech.shape[1] - noise.shape[1]), "constant", 0)
@@ -122,15 +121,25 @@ def generate_noise_dataset(expanded_df,run_details,features):
      snrs = [20, 3, 10]
 
      # Create the new expanded DataFrame by repeating rows and adding 'snrs'
-     df_expanded = pd.concat([clean_expanded_df.assign(snrs=snr) for snr in snrs], ignore_index=True)
+     df_expanded = pd.concat([clean_expanded_df.assign(snr=snr) for snr in snrs], ignore_index=True)
+
      filepath_noise = get_noises()
+     df_expanded['filepath_noise'] = filepath_noise
 
 
 
 
-     train_dataset = preprocessing.Hug_dataset_creation(clean_expanded_df, run_details.developer_mode, features, test_dataset=False)
+     train_dataset = preprocessing.Hug_dataset_creation(df_expanded, run_details.developer_mode, features, test_dataset=False)
+     train_dataset = train_dataset.map(preprocessing.prepare_noisedataset_seq2seq)
+
+     breakpoint()
+
+
+
+
 
 
 
      stored_dataset_path = "noise" + train_dataset_path
+     train_dataset.save_to_disk(dataset_path=stored_dataset_path)
      return stored_dataset_path

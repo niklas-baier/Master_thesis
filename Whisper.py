@@ -37,7 +37,7 @@ os.environ['WAND_LOG_MODEL'] = 'true'
 # setting the run details
 parser = get_parser()
 args = parser.parse_args()
-
+breakpoint()
 formated_date = preprocessing.get_formated_date()
 dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
     environment=args.environment, dataset_name=args.dataset_name)
@@ -91,10 +91,7 @@ tokenizer = WhisperTokenizer.from_pretrained(model_id, task="transcribe", langua
 dfs = [expanded_df, dev_df, eval_df]
 dataset_names = ["train_dataset", "eval_dataset", "test_dataset"]
 
-train_dataset = Hug_dataset_creation(expanded_df,run_details.developer_mode,features, test_dataset=False)
-eval_dataset = Hug_dataset_creation(dev_df,run_details.developer_mode,features, test_dataset=False)
 
-test_dataset = Hug_dataset_creation(eval_df,run_details.developer_mode,features, test_dataset=True)
 '''datasets = {name: Hug_dataset_creation(df, developer_mode=run_details.developer_mode, features=features) for name, df in
             zip(dataset_names, dfs)}
 train_dataset, eval_dataset, test_dataset = datasets.values()'''
@@ -109,11 +106,17 @@ train_dataset_path,eval_dataset_path, test_dataset_path = preprocessing.generate
 if not(preprocessing.mapped_dataset_exists(train_dataset_path)):
     print("dataset not mapped yet")
     dataset_paths = {"train": train_dataset_path, "eval":eval_dataset_path, "test":test_dataset_path}
+    train_dataset = Hug_dataset_creation(expanded_df, run_details.developer_mode, features, test_dataset=False)
+    eval_dataset = Hug_dataset_creation(dev_df, run_details.developer_mode, features, test_dataset=False)
+
+    test_dataset = Hug_dataset_creation(eval_df, run_details.developer_mode, features, test_dataset=True)
     preprocessing.map_datasets(run_details=run_details, train_dataset=train_dataset,
                                                                            eval_dataset=eval_dataset,
                                                                            test_dataset=test_dataset,dataset_paths=dataset_paths)
 
 train_dataset = datasets.load_from_disk(train_dataset_path)
+eval_dataset = datasets.load_from_disk(eval_dataset_path)
+test_dataset = datasets.load_from_disk(test_dataset_path)
 
 if args.augmentation == "Y":
     noisy_train_dataset_path = "noise"+ train_dataset_path
@@ -121,8 +124,6 @@ if args.augmentation == "Y":
         breakpoint()
         noisy_train_dataset_path = generate_noise_dataset(expanded_df=expanded_df,run_details= run_details,features=features)
     train_dataset = datasets.load_from_disk(noisy_train_dataset_path)
-eval_dataset = datasets.load_from_disk(eval_dataset_path)
-test_dataset = datasets.load_from_disk(test_dataset_path)
 
 
 model = WhisperForConditionalGeneration.from_pretrained(
@@ -198,6 +199,7 @@ training_args = Seq2SeqTrainingArguments(
     load_best_model_at_end=True,
     metric_for_best_model="wer",
     greater_is_better=False,
+    remove_unused_columns=True
 
 )
 # english_feature_extractor = processor.feature_extractor(language='en')
@@ -216,7 +218,7 @@ processor.save_pretrained(training_args.output_dir)
 
 
 if run_details.train_state == 'NT':
-    transcription_csv_path = transcribe_raw(model=model, run_details=run_details, transcription_csv_path=transcription_csv_path, torch_dtype=torch_dtype,eval_df=eval_df, processor=processor)
+    transcription_csv_path = transcribe_raw(model=model, run_details=run_details, torch_dtype=torch_dtype,eval_df=eval_df, processor=processor)
     visualize_results(transcription_csv_path, run_details)
 else:
     trainer.train()
