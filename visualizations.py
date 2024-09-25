@@ -140,8 +140,6 @@ def plot_histograms(data, run_details):
 
 def visualize_results(transcription_csv_path, run_details):
     data = pd.read_csv(transcription_csv_path)
-
-    print(data.head)
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
     data['results'] = data['results'].astype(str)
 

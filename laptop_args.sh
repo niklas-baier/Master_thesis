@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python3 Whisper.py --dataset_name "dipco" \
+python3 whisper_main.py --dataset_name "dipco" \
                    --model_id "openai/whisper-tiny" \
                    --version "vanilla" \
                    --environment "laptop" \

@@ -166,7 +166,7 @@ def generate_microphone_paths(row,mode_path):
 
 def chime_generate_microphone_paths(row, mode_path):
     paths = []
-    from Whisper import train_path
+    from whisper_main import train_path
     if mode_path == train_path:
         for i in range(1, 5):
             for j in range(1,7):
@@ -218,7 +218,7 @@ def chime_parsing(dataframe, run_details,mode_path):
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
                      'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
     else:
-        from Whisper import train_path
+        from whisper_main import train_path
         if mode_path == train_path:
             dataframe.drop(
                 columns=['end_time', 'start_time', 'endframe',
@@ -335,7 +335,7 @@ def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
-    from Whisper import run_details, tokenizer
+    from whisper_main import run_details, tokenizer
     feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
@@ -352,7 +352,7 @@ def prepare_noisedataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
 
-    from Whisper import run_details, tokenizer
+    from whisper_main import run_details, tokenizer
     feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
