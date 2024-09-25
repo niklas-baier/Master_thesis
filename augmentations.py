@@ -8,7 +8,6 @@ import torchaudio.transforms as T
 import torchaudio.functional as F
 import preprocessing
 from audioprocessing import get_spectrogram
-from visualizations import plot_waveform
 
 
 def get_noises():
@@ -119,27 +118,12 @@ def generate_noise_dataset(expanded_df,run_details,features):
      clean_expanded_df = expanded_df.query("file_name.str.contains(r'P\d{2}')", engine='python')
      # Define the new SNR values
      snrs = [20, 3, 10]
-
      # Create the new expanded DataFrame by repeating rows and adding 'snrs'
      df_expanded = pd.concat([clean_expanded_df.assign(snr=snr) for snr in snrs], ignore_index=True)
-
      filepath_noise = get_noises()
      df_expanded['filepath_noise'] = filepath_noise
-
-
-
-
      train_dataset = preprocessing.Hug_dataset_creation(df_expanded, run_details.developer_mode, features, test_dataset=False)
      train_dataset = train_dataset.map(preprocessing.prepare_noisedataset_seq2seq)
-
-     breakpoint()
-
-
-
-
-
-
-
      stored_dataset_path = "noise" + train_dataset_path
      train_dataset.save_to_disk(dataset_path=stored_dataset_path)
      return stored_dataset_path

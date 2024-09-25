@@ -3,17 +3,15 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
-from itertools import islice
 
 import augmentations
 
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
-from typing import List,Dict
-import torch
+from typing import List
 from sklearn.model_selection import train_test_split
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
 from datasets import Features, Value
 def dipco_paths(dataset_path):
 
@@ -129,7 +127,7 @@ def expand_start_time(row):
     return pd.DataFrame(rows)
 
 
-# Function to convert time string to seconds
+# @time_to_seconds: Function to convert time string to seconds
 def time_to_seconds(time_str):
     h, m, s = map(float, time_str.split(':'))
 
@@ -195,38 +193,11 @@ def get_Frames(starting_second: float, sample_rate: int, end_second: float) -> L
     return [int(starting_second * sample_rate), int(end_second * sample_rate)]
 
 
-# columns_to_drop = ['mother_tongue', 'ref', 'nativeness', 'audio', 'session_id','speaker_id', 'gender']
-
-
-# print(expanded_df['duration'].max()) yielded that the biggest in the dipco dataset was above 60 seconds for those an additional separation is required
-# expanded_df = expanded_df.drop(columns=columns_to_drop)
-# sorting for cache efficiency so far no speedup
 def validate_frames_column(frames_list):
     return len(frames_list) == 2
 
 
-# Drop the original 'frames' column if no longer needed
-"""expanded_df = expanded_df.drop(columns=['frames'])
-
-expanded_df = expanded_df.sort_values(by=['file_path','start'])
-expanded_df = expanded_df.reset_index(drop=True)
-grouped = expanded_df.groupby(['words'])
-count_df = grouped.size().reset_index(name='counts')
-first_group_key = list(grouped.groups.keys())[0]
-first_group = grouped.get_group(first_group_key)
-print(first_group)
-print(first_group['file_path'].value_counts())
-print(count_df)"""
-
-
-# expanded_df['logmel'] = expanded_df.apply(lambda row: get_logmel(row['startframe'], row['endframe'], row['file_path']), axis=1)
-
-
-# print(expanded_df)
-# print(expanded_df.head(10))
-
 def chime_parsing(dataframe, run_details,mode_path):
-    print(dataframe.shape)
     dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
     dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
     dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1,args=(mode_path,))
@@ -285,7 +256,6 @@ def dipco_parsing(dataframe, run_details, mode_path):
         raise ValueError(
             "Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
-    pprint.pp(dataframe.head(10))
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
 
@@ -300,18 +270,6 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe.sample(n=100,random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
         return train_dataframe, test_dataframe
-'''def train_test_split(dataframe, run_details):
-   
-    sampled_row = dataframe.sample(n=1)
-
-    # Step 2: Read the session_id value from the sampled row
-    sampled_session_id = sampled_row['session_id'].iloc[0]
-
-    # Step 3: Separate the DataFrame based on the session_id
-    df_same_session = dataframe[dataframe['session_id'] == sampled_session_id]
-    df_different_session = dataframe[dataframe['session_id'] != sampled_session_id]
-
-    return df_different_session, df_same_session'''
 def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
@@ -416,7 +374,6 @@ def prepare_noisedataset_seq2seq(batch):
 
 
 def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
-    breakpoint()
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
     else:

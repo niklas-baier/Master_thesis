@@ -54,19 +54,6 @@ def run_details_valid(run_details):
     return False
 
 
-import sys
-import traceback
-
-"""
-def custom_print(*args, **kwargs):
-    # Print the stack trace
-    traceback.print_stack(limit=5, file=sys.stdout)
-    # Call the original print function
-    original_print(*args, **kwargs)
-
-# Override the print function
-
-"""
 def dipco_only_planned_special_tokens(expanded_df,eval_df):
     pattern = r'\[\w+\]'
 
