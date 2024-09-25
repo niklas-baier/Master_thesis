@@ -60,7 +60,7 @@ def compute_metrics(pred):
 
     return {"wer": wer}
 def compute_chime_metrics(pred):
-    from Whisper import model_id, run_details, tokenizer
+    from Whisper import run_details, run_details, tokenizer
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 

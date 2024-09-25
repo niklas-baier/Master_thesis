@@ -2,7 +2,7 @@ import warnings
 from functools import wraps
 import time
 
-from preprocessing import extract_special_token
+
 
 
 def timing_decorator(func):
@@ -55,6 +55,7 @@ def run_details_valid(run_details):
 
 
 def dipco_only_planned_special_tokens(expanded_df,eval_df):
+    from preprocessing import extract_special_token
     pattern = r'\[\w+\]'
 
     # should contain noise unintelligible and laugh

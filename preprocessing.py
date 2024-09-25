@@ -3,8 +3,10 @@ import glob
 from datetime import datetime
 import re
 import pandas as pd
+from transformers import WhisperFeatureExtractor
 
 import augmentations
+from train import get_model_size
 
 pd.options.mode.copy_on_write = True
 import torchaudio
@@ -332,9 +334,9 @@ def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
 
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
-    from Whisper import feature_extractor, tokenizer
-    # Iterate over each example in the batch
-    from Whisper import feature_extractor, tokenizer
+
+    from Whisper import run_details, tokenizer
+    feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
@@ -348,9 +350,10 @@ def prepare_dataset_seq2seq(batch):
     return batch
 def prepare_noisedataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
-    from Whisper import feature_extractor, tokenizer
-    # Iterate over each example in the batch
-    from Whisper import feature_extractor, tokenizer
+
+
+    from Whisper import run_details, tokenizer
+    feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
@@ -419,3 +422,30 @@ def extract_special_token(label_string):
 
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
+def generate_dfs(args, run_details):
+    dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
+        environment=args.environment, dataset_name=args.dataset_name)
+    df = load_and_concatenate_json_files(transcript_dev_path)
+    eval_df = load_and_concatenate_json_files(transcript_eval_path)
+    if run_details.dataset_name == 'Chime6':
+        train_df = load_and_concatenate_json_files(transcript_train_path)
+    transcriptions = df['words']
+    if run_details.dataset_name == 'Chime6':
+        dev_df = chime_parsing(df, run_details, dev_path)  # dev
+        eval_df = chime_parsing(eval_df, run_details, eval_path)
+        expanded_df = chime_parsing(train_df, run_details, train_path)
+
+    else:
+        expanded_df, dev_df = dipco_parsing(df, run_details, dev_path)
+        # TODO Verify
+        eval_df, eval_df2 = dipco_parsing(eval_df, run_details, eval_path)
+        eval_df = pd.concat([eval_df, eval_df2])
+    eval_df['results'] = eval_df['words']
+    eval_df.reset_index(drop=True, inplace=True)
+    return expanded_df, dev_df, eval_df
+
+def generate_transcription_csv_path(run_details):
+    model_size = get_model_size(run_details.model_id)
+    transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
+    return transcription_csv_path
+
