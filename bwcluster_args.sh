@@ -8,7 +8,7 @@ python3 whisper_main.py --dataset_name "dipco" \
                    --device "cuda" \
                    --task "transcribe" \
                    --developer_mode "N" \
-                   --augmentation "Y" \
+                   --augmentation "N" \
                    --additional_tokens "N"
                    
                    
