@@ -5,9 +5,9 @@ from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
 import json
 import os
 import numpy as np
-from preprocessing import get_formated_date, extract_special_token
 import evaluate
-
+from meeteval.viz.visualize import AlignmentVisualization
+import meeteval
 def chime_normalisation(input:str) -> str:
     jiwer_chime6_scoring = jiwer.Compose(
     [
@@ -99,32 +99,11 @@ def compute_classification_metrics(pred):
     return metric.compute(predictions=predictions, references=pred.label_ids)
 
 
-import meeteval
-from meeteval.viz.visualize import AlignmentVisualization
 
-import meeteval
-def meeteval():
-    folder = r'https://raw.githubusercontent.com/fgnt/meeteval/main/'
-    av = AlignmentVisualization(
-        meeteval.io.load(folder + 'example_files/ref.stm').groupby('filename')['recordingA'],
-        meeteval.io.load(folder + 'example_files/hyp.stm').groupby('filename')['recordingA']
-    )
-    # display(av)  # Jupyter
-    # av.dump('viz.html')  # Create standalone HTML file
 
-    import pandas as pd
-    import jiwer
-    from jiwer.transforms import RemoveKaldiNonWords
-    from lhotse.recipes.chime6 import TimeFormatConverter, normalize_text_chime6
-
-    # SISO WER
-    wer = meeteval.wer.wer.siso.siso_word_error_rate(
-        reference='The quick brown fox jumps over the lazy dog',
-        hypothesis='The qwick brown fox jump over lazy '
-    )
-    print(wer)
 
 def analysis_special_tokens(results):
+    from preprocessing import extract_special_token
     results['token'] = results.apply(lambda row: extract_special_token(row['words']), axis=1)
     grouped_train = results.groupby(['token'])
     allowed_tokens = ["[noise]", "[laugh]", "[unintelligible]", "No token", "[laughs]"]  #

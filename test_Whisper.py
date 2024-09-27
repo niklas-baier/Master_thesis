@@ -43,24 +43,17 @@ def run_details_valid(run_details):
                                 print(f"{run_details.model_id} as model_name valid")
                                 if run_details.developer_mode in ['Y','N']:
                                     print(f"{run_details.developer_mode} as development_mode valid")
-                                    return True
+                                    if run_details.augmentation in ['Y', 'N']:
+                                        print(f"{run_details.augmentation} as augmentation mode valid")
+                                        if run_details.augmentation == ['Y']:
+                                            assert run_details.train_state == "T", "augmentation only in training mode valid"
+
+
+                                        return True
 
     return False
 
 
-import sys
-import traceback
-
-"""
-def custom_print(*args, **kwargs):
-    # Print the stack trace
-    traceback.print_stack(limit=5, file=sys.stdout)
-    # Call the original print function
-    original_print(*args, **kwargs)
-
-# Override the print function
-
-"""
 def dipco_only_planned_special_tokens(expanded_df,eval_df):
     pattern = r'\[\w+\]'
 

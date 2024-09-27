@@ -93,34 +93,21 @@ def visualize_wer(grouped, type):
 
 
 
-# looking at the results from the individual sessions
-import re
 
+def extract_info(file_path, pattern, group_idx):
+    match = re.search(pattern, file_path)
+    if match:
+        return match.group(group_idx)
+    return None
 
 def extract_session(file_path):
-    match = re.search(r'/S(\d+)', file_path)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
+    return extract_info(file_path, r'/S(\d+)', 1)
 
-
-# the microphones on person vs not on person
 def extract_person(file_path):
-    match = re.search(r'/S(\d+)_([PU])(\d+)', file_path)
-    if match:
-        return str(match.group(2))
-    else:
-        return None
+    return extract_info(file_path, r'/S(\d+)_([PU])(\d+)', 2)
 
-
-# the people
 def extract_location(file_path):
-    match = re.search(r'/S(\d+)_([PU])(\d+)', file_path)
-    if match:
-        return str(match.group(3))
-    else:
-        return None
+    return extract_info(file_path, r'/S(\d+)_([PU])(\d+)', 3)
 
 
 def print_wer(grouped, type):
@@ -144,8 +131,8 @@ def plot_histograms(data, run_details):
     metric = "cer"
     hist_path = f'Figures/Training/histograms/{run_details.dataset_name}/{metric}.png'
     plt.hist(data[metric], bins=100, color='yellow', alpha=0.7)
-    plt.title('Histogram of Word Error Rate (WER)')
-    plt.xlabel('WER')
+    plt.title('Histogram of Character Error Rate (CER)')
+    plt.xlabel('CER')
     plt.ylabel('Frequency')
     plt.grid(True)
     plt.savefig(hist_path,format='png')
@@ -198,8 +185,6 @@ def visualize_results(transcription_csv_path, run_details):
 
     # plot visualization of the different sessions and store the results
 
-    import re
-    import matplotlib.pyplot as plt
 
     directory = "Figures"
 
