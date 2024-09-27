@@ -2,12 +2,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer, TrainerCallback, pipeline
+from transformers import WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor
 from tqdm import tqdm
+
+from augmentations import generate_noise_dataset
+
+
+from peftModification import create_peft_model
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
 from pathlib import Path
 import os
+import datasets
 
 @dataclass
 @final
@@ -172,7 +178,7 @@ def add_prediction_column(words, labels_trained, temp):
         print("labels_trained " + labels_trained)
         return temp
 
-def transcribe_results(*, test_dataset, trainer, transcription_csv_path,run_details):
+def transcribe_results(*, test_dataset, trainer,run_details):
     trainer.evaluate(eval_dataset=test_dataset)
     results_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
     file_path = os.path.join(results_directory, "results.json")
@@ -223,4 +229,62 @@ def transcribe_raw(eval_df,model,processor, run_details,torch_dtype):
 
     return transcription_csv_path
 
+def create_tokenizer_model_processor(run_details, torch_dtype):
+    tokenizer = WhisperTokenizer.from_pretrained(run_details.model_id, task="transcribe", language="en")
+    tokenizer.set_prefix_tokens(language="english")
+    model = WhisperForConditionalGeneration.from_pretrained(
+        run_details.model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
+    )
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+    print(f"Number of trainable parameters: {num_params}")
+    processor = AutoProcessor.from_pretrained(run_details.model_id, language='en', task="transcribe")
+    if ("large" or "medium") in run_details.model_id:
+        processor = AutoProcessor.from_pretrained(run_details.model_id, language='en', task="transcribe")
+        model.generation_config.language = "English"
+        model.generation_config.task = "transcribe"
+    else:
+        processor = AutoProcessor.from_pretrained(run_details.model_id)
+    model.generation_config.forced_decoder_ids = None
+    if run_details.additional_tokens == "Y":
+        # define new tokens to add to vocab
+        new_tokens = ['[laugh]', '[unintelligible]', '[noise]', ]
+        # check if the new tokens are already in the vocabulary
+        new_tokens = set(new_tokens) - set(tokenizer.vocab.keys())
+        # add the tokens to the tokenizer vocabulary
+        tokenizer.add_tokens(list(new_tokens))
+        # add new random embeddings for the appended tokens
+        model.resize_token_embeddings(len(tokenizer))
+
+    if run_details.version == 'peft':
+        model = create_peft_model(model)
+    elif run_details.version == "last-layer":
+        model = freeze_all_layers_but_last(model)
+    return tokenizer, model, processor
+
+def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df):
+    from preprocessing import Hug_dataset_creation,generate_dataset_paths,mapped_dataset_exists,map_datasets
+    train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
+        run_details=run_details)
+    if not (mapped_dataset_exists(train_dataset_path)):
+        print("dataset not mapped yet")
+        dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
+        train_dataset = Hug_dataset_creation(expanded_df, run_details.developer_mode, features, test_dataset=False)
+        eval_dataset = Hug_dataset_creation(dev_df, run_details.developer_mode, features, test_dataset=False)
+        test_dataset = Hug_dataset_creation(eval_df, run_details.developer_mode, features, test_dataset=True)
+        map_datasets(run_details=run_details, train_dataset=train_dataset,
+                                   eval_dataset=eval_dataset,
+                                   test_dataset=test_dataset, dataset_paths=dataset_paths)
+
+    train_dataset = datasets.load_from_disk(train_dataset_path)
+    eval_dataset = datasets.load_from_disk(eval_dataset_path)
+    test_dataset = datasets.load_from_disk(test_dataset_path)
+
+    if args.augmentation == "Y":
+        noisy_train_dataset_path = "noise" + train_dataset_path
+        if not (mapped_dataset_exists(noisy_train_dataset_path)):
+            noisy_train_dataset_path = generate_noise_dataset(expanded_df=expanded_df, run_details=run_details,
+                                                              features=features)
+        train_dataset = datasets.load_from_disk(noisy_train_dataset_path)
+
+    return train_dataset,eval_dataset, test_dataset

@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import pandas as pd
 import torchaudio
-import sounddevice as sd
 import torchaudio.transforms as T
 import torchaudio.functional as F
 import preprocessing
