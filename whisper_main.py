@@ -45,6 +45,7 @@ training_args = Seq2SeqTrainingArguments(
     generation_max_length=225,
     save_steps=save_steps,
     eval_steps=100,
+    fp16=True,
     logging_steps=loggings_steps,
     report_to='wandb',
     run_name = run_name,
