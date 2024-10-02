@@ -5,10 +5,12 @@ import jiwer
 
 import evaluation
 import preprocessing
+import pandas as pd
 from logrun import log_run
 from test_Whisper import run_details_valid
 from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne
-from train import RunDetails, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, get_parser, transcribe_results,transcribe_raw, create_tokenizer_model_processor, generate_datasets
+from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, \
+    get_model_size, get_parser, transcribe_raw, create_tokenizer_model_processor, generate_datasets
 import os
 import torch
 from transformers import Seq2SeqTrainingArguments,Seq2SeqTrainer
@@ -119,9 +121,30 @@ else:
     pass
 
 # significantly faster than pandas dataframe
+
+
+def transcribe_results(*, test_dataset, trainer, run_details):
+    trainer.evaluate( eval_dataset=test_dataset )
+    results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
+    file_path = os.path.join( results_directory, "results.json" )
+    results = pd.read_json( file_path )
+    test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
+    assert results.shape[0] == test_df.shape[0]
+    test_df['labels_trained'] = results['labels']
+    test_df['temp'] = results['predictions']
+    test_df['results'] = test_df.apply(
+        lambda row: add_prediction_column( row['words'], row['labels_trained'], row['temp'] ), axis=1 )
+    test_df.drop( columns=['temp', 'labels_trained'] )
+    model_size = get_model_size( run_details.model_id )
+    trained_path = f'{run_details.dataset_name}_eval_{model_size}_trained.csv'
+    test_df.to_csv( trained_path, index=False )
+    trainer.save_model( "./my_model" )
+    return trained_path
+
+
 transcription_csv_path_trained = transcribe_results(test_dataset=test_dataset,trainer=trainer, run_details=run_details)
 visualize_results(transcription_csv_path_trained, run_details)
+
+
 raise ValueError()
-
-
 
