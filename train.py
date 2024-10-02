@@ -233,7 +233,7 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
 
 def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df):
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets
-    train_dataset_path, eval_dataset_path, test_dataset_path, tsne_dataset_path = generate_dataset_paths(
+    train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
         run_details=run_details )
     if not (mapped_dataset_exists( train_dataset_path )):
         print( "dataset not mapped yet" )
