@@ -4,7 +4,7 @@ import meeteval.wer.wer.siso
 import pandas as pd
 from jiwer import cer
 
-from latex_conversion_results import save_latex_csv
+from latex import create_latex_table, save_latex_csv
 from preprocessing import get_formated_date
 
 
@@ -20,6 +20,8 @@ def log_run(run_details):
     filepath = "run_logs.csv"
     if(Path(filepath).is_file()):
         df = pd.read_csv(filepath)
+        breakpoint()
+        create_latex_table(df, "str" )
     else:
         df = pd.DataFrame(columns=["model_name", "dataset", "date", "Training_version", "environment", "developer_mode", "wer", "cer","results_path", "notes"])
 
