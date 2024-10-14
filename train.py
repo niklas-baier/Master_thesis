@@ -2,13 +2,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor
+from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor
 from tqdm import tqdm
 from transformers.models.whisper.modeling_whisper import *
 from dataclasses import dataclass
 from typing import Any, Dict, List, Union
 from augmentations import generate_noise_dataset
-from peftModification import create_peft_model
+from peftModification import create_peft, create_peft_model
 from test_Whisper import suppress_specific_warnings, timing_decorator
 import torchaudio
 from pathlib import Path
@@ -72,16 +72,51 @@ def generate_training_args(run_details):
     save_steps = 200
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
-    if run_details.environment == 'cluster':
-        max_steps = 4000
-        if 'tiny' in run_details.model_id:
-            train_batch_size = 64
-            per_device_eval_batch_size = 64
-    elif run_details.environment == 'bwcluster':
-        train_batch_size = 64
-        per_device_eval_batch_size = 64
-        max_steps = 4000
-    return train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps, save_steps, output_dir, run_name
+    if run_details.version == "peft":
+        training_args = Seq2SeqTrainingArguments(
+            output_dir="reach-vb/test",  # change to a repo name of your choice
+            per_device_train_batch_size=8,
+            gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+            learning_rate=1e-3,
+            warmup_steps=50,
+            num_train_epochs=1,
+            evaluation_strategy="steps",
+            fp16=True,
+            per_device_eval_batch_size=8,
+            generation_max_length=128,
+            logging_steps=100,
+            max_steps=100,  # only for testing purposes, remove this from your final run :)
+            remove_unused_columns=False,
+            # required as the PeftModel forward doesn't have the signature of the wrapped model's forward
+            label_names=["labels"],  # same reason as above
+            )
+        return training_args
+    training_args = Seq2SeqTrainingArguments(
+        output_dir=output_dir,
+        logging_dir='./logs',
+        per_device_train_batch_size=train_batch_size,
+        gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+        learning_rate=1e-5,
+        warmup_steps=0,
+        max_steps=max_steps,  # 4000
+        gradient_checkpointing=True,
+        eval_strategy="steps",
+        per_device_eval_batch_size=per_device_eval_batch_size,
+        predict_with_generate=True,
+        generation_max_length=225,
+        save_steps=save_steps,
+        eval_steps=100,
+        fp16=True,
+        logging_steps=loggings_steps,
+        report_to='wandb',
+        run_name=run_name,
+        load_best_model_at_end=True,
+        metric_for_best_model="wer",
+        greater_is_better=False,
+        remove_unused_columns=True
+
+        )
+    return training_args
 
 
 @suppress_specific_warnings
@@ -225,29 +260,48 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
         model.resize_token_embeddings( len( tokenizer ) )
 
     if run_details.version == 'peft':
-        model = create_peft_model( model )
+        model = create_peft(run_details)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
     return tokenizer, model, processor
 
 
 def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df):
+    from preprocessing import generate_test_features
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets
     train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
-        run_details=run_details )
+        run_details=run_details )\
+
+
+    expanded_df.to_csv( "shuffled_test_dataframe.csv" )
     if not (mapped_dataset_exists( train_dataset_path )):
         print( "dataset not mapped yet" )
         dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
         train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features, test_dataset=False )
         eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
-        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, features, test_dataset=True )
+        test_features = generate_test_features(run_details)
+        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
         map_datasets( run_details=run_details, train_dataset=train_dataset,
                       eval_dataset=eval_dataset,
                       test_dataset=test_dataset, dataset_paths=dataset_paths )
 
+
     train_dataset = datasets.load_from_disk( train_dataset_path )
+    # remove the unncessary columns
+
+    def drop_columns(dataset):
+        columns_to_be_dropped = [x for x in dataset.column_names if x not in ['input_features', 'labels']]
+        dataset = dataset.remove_columns( columns_to_be_dropped )
+        return dataset
+    train_dataset = drop_columns(train_dataset)
+
+
     eval_dataset = datasets.load_from_disk( eval_dataset_path )
+    eval_dataset = drop_columns(eval_dataset)
+
     test_dataset = datasets.load_from_disk( test_dataset_path )
+    test_dataset = drop_columns(test_dataset)
+
     #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
 
     if args.augmentation == "Y":

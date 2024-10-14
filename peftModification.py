@@ -1,8 +1,12 @@
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, TaskType
 import torch
+import os
 # Define LoRA Config
 # Print out all the module names in the model
 import bitsandbytes as bnb
+from transformers import WhisperForConditionalGeneration
+
+
 def create_peft_model(model):
     for param in model.parameters():
         param.requires_grad = False  # freeze the model - train adapters later
@@ -33,5 +37,29 @@ def create_peft_model(model):
     model = get_peft_model(model, text_lora_config)
     model.print_trainable_parameters()
     return model
+
+def create_peft(run_details):
+    from peft import prepare_model_for_kbit_training
+    from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
+    model = WhisperForConditionalGeneration.from_pretrained( run_details.model_id, load_in_8bit=True, device_map="auto" )
+    model = prepare_model_for_kbit_training(model)
+
+    def make_inputs_require_grad(module, input, output):
+        output.requires_grad_( True )
+
+    model.model.encoder.conv1.register_forward_hook(make_inputs_require_grad)
+    # Here comes the magic with `peft`! Let's load a `PeftModel` and specify that we are going to use low-rank adapters (LoRA) using `get_peft_model` utility function from `peft`.
+    config = LoraConfig( r=32, lora_alpha=64, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none" )
+
+    model = get_peft_model( model, config )
+    model.print_trainable_parameters()
+    return model
+
+
+
+
+
+# This callback helps to save only the adapter weights and remove the base model weights.
+
 
 

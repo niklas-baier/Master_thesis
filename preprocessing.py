@@ -285,27 +285,42 @@ def drop_columns_dipco(dataframe, run_details):
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe
 
-def generate_features(run_details):
-    basic_features = {'file_path': Value('string'),
-                'startframe': Value('int64'),
-                'num_frames': Value('int64')}
+
+def _build_basic_features(run_details):
+    basic_features = {
+        'file_path': Value( 'string' ),
+        'startframe': Value( 'int64' ),
+        'num_frames': Value( 'int64' )
+        }
     if run_details.augmentation == 'Y':
-        basic_features['snr'] = Value('int64')
-        basic_features['filepath_noise'] = Value('string')
-        basic_features['words'] = Value('string')
-        basic_features['file_name'] = Value('string')
-
-        return Features(basic_features)
+        basic_features.update( {
+            'snr': Value( 'int64' ),
+            'filepath_noise': Value( 'string' ),
+            'words': Value( 'string' ),
+            'file_name': Value( 'string' )
+            } )
     else:
-        basic_features['words'] = Value('string')
-        return Features(basic_features)
+        basic_features['words'] = Value( 'string' )
 
+    return basic_features
+
+
+def generate_features(run_details):
+    basic_features = _build_basic_features( run_details )
+    return Features( basic_features )
+
+
+def generate_test_features(run_details):
+    basic_features = _build_basic_features( run_details )
+    basic_features['results'] = Value( 'string' )
+    return Features( basic_features )
 
 
 def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
+
 
 
 
@@ -326,6 +341,7 @@ def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
         return shuffled_dataset
 
     if test_dataset:
+
         shuffled_test_dataframe = shuffled_dataset.to_pandas()
         shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
 
