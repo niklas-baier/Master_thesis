@@ -29,7 +29,8 @@ class RunDetails:
     task: str  #classification or transciption or joint
     developer_mode: str  # small datasets?
     augmentation: str  # use of synthetic noise augmentation
-    additional_tokens: str = field( default="Y" )  # should additonal tokens be added
+    additional_tokens: str = field( default="N" )  # should additonal tokens be added
+    checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
 
 
 
@@ -272,8 +273,10 @@ def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df)
     train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
         run_details=run_details )\
 
-
-    expanded_df.to_csv( "shuffled_test_dataframe.csv" )
+    eval_df.to_csv( "shuffled_test_dataframe.csv" )
+    if run_details.developer_mode == "Y":
+        eval_df = eval_df.head(100)
+    eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if not (mapped_dataset_exists( train_dataset_path )):
         print( "dataset not mapped yet" )
         dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}

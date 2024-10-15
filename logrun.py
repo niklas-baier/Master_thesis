@@ -20,10 +20,8 @@ def log_run(run_details):
     filepath = "run_logs.csv"
     if(Path(filepath).is_file()):
         df = pd.read_csv(filepath)
-        breakpoint()
-        create_latex_table(df, "str" )
     else:
-        df = pd.DataFrame(columns=["model_name", "dataset", "date", "Training_version", "environment", "developer_mode", "wer", "cer","results_path", "notes"])
+        df = pd.DataFrame(columns=["model_name", "dataset", "date", "Training_version", "environment", "developer_mode", "wer", "cer","results_path","checkpoint-path", "notes"])
 
     new_row = {
         "model_name": run_details.model_id,
@@ -35,10 +33,13 @@ def log_run(run_details):
         "wer": run_average_wer,
         "cer": run_average_cer,
         "results_path": results_path,
-        "notes": "Initial run with custom dataset"
+        "notes": "Initial run with custom dataset",
+        "checkpoint-path": run_details.checkpoint_path,
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(filepath, index=False)
     save_latex_csv(df)
+    breakpoint()
+    create_latex_table( df, "str" )
 
 

@@ -65,11 +65,10 @@ def transcribe_results(*, test_dataset, trainer, run_details):
     test_df['temp'] = results['predictions']
     test_df['results'] = test_df.apply(
         lambda row: add_prediction_column( row['words'], row['labels_trained'], row['temp'] ), axis=1 )
-    test_df.drop( columns=['temp', 'labels_trained'] )
+    test_df.drop( columns=['labels_trained'] )
     model_size = get_model_size( run_details.model_id )
     trained_path = f'{run_details.dataset_name}_eval_{model_size}_trained.csv'
     test_df.to_csv( trained_path, index=False )
-    trainer.save_model( "./my_model" )
     return trained_path
 
 
@@ -147,14 +146,15 @@ trainer = get_trainer(run_details=run_details, training_args=training_args, data
 processor.save_pretrained(training_args.output_dir)
 #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
 if run_details.train_state == 'NT':
-    transcription_csv_path = transcribe_raw(model=model, run_details=run_details, torch_dtype=torch_dtype,eval_df=eval_df, processor=processor)
-    visualize_results(transcription_csv_path, run_details)
+    transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
+                                                         run_details=run_details )
+    visualize_results(transcription_csv_path_trained, run_details)
+    log_run( run_details=run_details )
 else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
     trainer.train()
     peft_model_id = 'waterman3000/peft'
     model.push_to_hub(peft_model_id)
-    breakpoint()
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )
     visualize_results( transcription_csv_path_trained, run_details )

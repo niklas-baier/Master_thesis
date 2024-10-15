@@ -16,18 +16,17 @@ def create_latex_table(df, columns):
     #rename columns if they are not latex_conform
     df = rename_columns_for_latex(df)
     #apply style on a specific row marking the minimum
-    styled_df = df.style.apply(lambda x: ['cellcolor: [HTML]{b5ffb1} \\itshape \\bfseries' if v == x.min() else '' for v in x],subset=['startframe'] )
+    styled_df = df.style.apply(lambda x: ['cellcolor: [HTML]{b5ffb1} \\itshape \\bfseries' if v == x.min() else '' for v in x],subset=['wer'] )
 
 
 
     # save the latex table to a file
     with open( "latex_table.txt", "w" ) as file:
         file.write( styled_df.hide( axis="index" ).to_latex(
-            column_format="rrrrr",
             position="h",
             position_float="centering",
             hrules=True,
-            label="table:5",
+            label="table:results",
             caption="Results of the baselines",
             ) )
     return
