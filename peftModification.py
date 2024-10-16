@@ -41,7 +41,7 @@ def create_peft_model(model):
 def create_peft(run_details):
     from peft import prepare_model_for_kbit_training
     from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
-    model = WhisperForConditionalGeneration.from_pretrained( run_details.model_id, load_in_8bit=True, device_map="auto" )
+    model = WhisperForConditionalGeneration.from_pretrained( "reach-vb/whisper-large-v2-hindi-100steps", load_in_8bit=True, device_map="auto" )
     model = prepare_model_for_kbit_training(model)
 
     def make_inputs_require_grad(module, input, output):

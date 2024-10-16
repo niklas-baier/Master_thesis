@@ -232,10 +232,17 @@ def transcribe_raw(eval_df, model, processor, run_details, torch_dtype):
 
 def create_tokenizer_model_processor(run_details, torch_dtype):
     tokenizer = WhisperTokenizer.from_pretrained( run_details.model_id, task="transcribe", language="en" )
+    if (run_details.checkpoint_path != ""):
+        path_of_model = run_details.checkpoint_path
+    else:
+        path_of_model = run_details.model_id
+
     tokenizer.set_prefix_tokens( language="english" )
     model = WhisperForConditionalGeneration.from_pretrained(
-        run_details.model_id, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
+        path_of_model, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
         )
+
+
     num_params = sum( p.numel() for p in model.parameters() if p.requires_grad )
 
     print( f"Number of trainable parameters: {num_params}" )

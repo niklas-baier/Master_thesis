@@ -48,11 +48,11 @@ def compute_chime_metrics(pred):
 
 def transcribe_results(*, test_dataset, trainer, run_details):
     if run_details.version == 'peft':
-        peft_config = PeftConfig.from_pretrained( peft_model_id )
+        peft_config = PeftConfig.from_pretrained( run_details.model_id )
         model = WhisperForConditionalGeneration.from_pretrained(
             peft_config.base_model_name_or_path, load_in_8bit=True, device_map="auto"
             )
-        model = PeftModel.from_pretrained( model, peft_model_id )
+        model = PeftModel.from_pretrained( model, run_details.model_id )
         model.config.use_cache = True
 
     trainer.evaluate( eval_dataset=test_dataset )
