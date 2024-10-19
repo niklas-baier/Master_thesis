@@ -115,7 +115,10 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             tokenizer=processor.feature_extractor,
             )
     return trainer
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Change the current working directory to the directory where whisper_main.py is located
+os.chdir(script_dir)
 os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
@@ -154,7 +157,7 @@ else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
     trainer.train()
     peft_model_id = 'waterman3000/peft'
-    model.push_to_hub(peft_model_id)
+    #model.push_to_hub(peft_model_id)
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )
     visualize_results( transcription_csv_path_trained, run_details )

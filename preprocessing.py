@@ -155,7 +155,7 @@ def generate_microphone_paths(row,mode_path):
 
     paths = []
 
-    for i in range(1):
+    for i in range(1,2):
         path = f"{mode_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
         paths.append(path)
 
