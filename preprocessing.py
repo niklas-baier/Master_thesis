@@ -346,13 +346,15 @@ def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
         shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
 
     return shuffled_dataset
-
-
+from functools import *
+# partial to ensure that the feature extractor has the right arguments
+get_Feature_extractor = partial(WhisperFeatureExtractor.from_pretrained, language='en', task="transcribe" )
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
     from whisper_main import run_details, tokenizer
-    feature_extractor = WhisperFeatureExtractor.from_pretrained(run_details.model_id)
+
+    feature_extractor = get_Feature_extractor(run_details.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])

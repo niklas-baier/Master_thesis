@@ -146,6 +146,8 @@ metric = evaluate.load("wer")
 training_args = generate_training_args(run_details)
 trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset )
 
+loss_function = trainer.compute_loss
+breakpoint()
 processor.save_pretrained(training_args.output_dir)
 #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
 if run_details.train_state == 'NT':

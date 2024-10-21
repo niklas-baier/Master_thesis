@@ -229,33 +229,35 @@ def transcribe_raw(eval_df, model, processor, run_details, torch_dtype):
 
     return transcription_csv_path
 
-
+from functools import *
+# partials to ensure that the right arguments are always provided ( same as a getter)
+get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", task="transcribe")
+get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe" )
+get_plain_model = partial(WhisperForConditionalGeneration.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True)
 def create_tokenizer_model_processor(run_details, torch_dtype):
-    tokenizer = WhisperTokenizer.from_pretrained( run_details.model_id, task="transcribe", language="en" )
+
     if (run_details.checkpoint_path != ""):
         path_of_model = run_details.checkpoint_path
     else:
         path_of_model = run_details.model_id
-
+    tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
-    model = WhisperForConditionalGeneration.from_pretrained(
-        path_of_model, low_cpu_mem_usage=True, use_safetensors=True, torch_dtype=torch_dtype,
-        )
+    model = get_plain_model(run_details.model_id, torch_dtype=torch_dtype)
 
 
     num_params = sum( p.numel() for p in model.parameters() if p.requires_grad )
 
     print( f"Number of trainable parameters: {num_params}" )
-    processor = AutoProcessor.from_pretrained( run_details.model_id, language='en', task="transcribe" )
+    processor = get_tokenizer(run_details.model_id)
     if ("large" or "medium") in run_details.model_id:
-        processor = AutoProcessor.from_pretrained( run_details.model_id, language='en', task="transcribe" )
+        processor = get_Processor(run_details.model_id)
         model.generation_config.language = "English"
         model.generation_config.task = "transcribe"
         model._set_language_and_task( language="en", task="transcribe", is_multilingual=True,
                                       generation_config=model.generation_config )
         # model.model_tags /
     else:
-        processor = AutoProcessor.from_pretrained( run_details.model_id )
+        processor = get_Processor(run_details.model_id)
     model.generation_config.forced_decoder_ids = None
     if run_details.additional_tokens == "Y":
         # define new tokens to add to vocab
