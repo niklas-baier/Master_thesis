@@ -70,7 +70,7 @@ def generate_training_args(run_details):
     per_device_eval_batch_size = 8
     max_steps = 300
     loggings_steps = 100
-    save_steps = 200
+    save_steps = 50
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.version == "peft":
@@ -106,7 +106,7 @@ def generate_training_args(run_details):
         predict_with_generate=True,
         generation_max_length=225,
         save_steps=save_steps,
-        eval_steps=100,
+        eval_steps=50,
         fp16=True,
         logging_steps=loggings_steps,
         report_to='wandb',
@@ -114,7 +114,8 @@ def generate_training_args(run_details):
         load_best_model_at_end=True,
         metric_for_best_model="wer",
         greater_is_better=False,
-        remove_unused_columns=True
+        remove_unused_columns=True,
+        save_total_limit=4
 
         )
     return training_args

@@ -13,7 +13,7 @@ from train import RunDetails, add_prediction_column, generate_training_args, Dat
 import os
 import torch
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
-    TrainerControl, WhisperForConditionalGeneration
+    TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 def compute_chime_metrics(pred):
     pred_ids = pred.predictions
@@ -43,6 +43,7 @@ def compute_chime_metrics(pred):
 
         # wer = 100 * metric.compute(predictions=chime_normalized_prediction, references=chime_normalized_reference)
         wer = jiwer.wer( hypothesis=list( chime_normalized_prediction ), reference=list( chime_normalized_reference ) )
+        # TODO different normalizers for eval and testing ?
 
         return {"wer": wer}
 
@@ -113,6 +114,7 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             data_collator=data_collator,
             compute_metrics=compute_chime_metrics,
             tokenizer=processor.feature_extractor,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=1)]
             )
     return trainer
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -146,8 +148,7 @@ metric = evaluate.load("wer")
 training_args = generate_training_args(run_details)
 trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset )
 
-loss_function = trainer.compute_loss
-breakpoint()
+
 processor.save_pretrained(training_args.output_dir)
 #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
 if run_details.train_state == 'NT':
