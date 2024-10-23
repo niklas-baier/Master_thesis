@@ -260,6 +260,9 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
+    if run_details.augmentation == 'Y':
+        pass
+    breakpoint()
 
 
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
@@ -453,6 +456,8 @@ def generate_dfs(args, run_details):
         eval_df = chime_parsing(eval_df, run_details, eval_path)
         expanded_df = chime_parsing(train_df, run_details, train_path)
 
+
+
     else:
         expanded_df, dev_df = dipco_parsing(df, run_details, dev_path)
         # TODO Verify
@@ -466,4 +471,25 @@ def generate_transcription_csv_path(run_details):
     model_size = get_model_size(run_details.model_id)
     transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
     return transcription_csv_path
+
+
+def get_clean_audio_without_music(df):
+    # music noise starts playing at dipco at different timestamps more details in README of DIPCO dataset
+    music_start = {"S01": "00:38:52", "S02": "00:19:30", "S03": "00:33:45","S04": "00:23:25", "S05": "00:31:15", "S06": "00:06:17","S07": "00:10:05", "S08": "00:01:02", "S09": "00:12:18","S10": "00:07:10"}
+    music_start_seconds = {key: time_to_seconds(value) for key,value in music_start.items()}
+    music_start_frames = {key: float(value)*16000 for key,value in music_start_seconds.items()}
+    df["music_start"] = df['session_id'].map( lambda x, mapping=music_start_frames: mapping.get( x, None ) )
+    no_background_music_samples = df.query("music_start > endframe")
+    no_background_music_samples.drop_columns(['music_start'], inplace=True)
+    return no_background_music_samples
+
+def remove_duplicates(df):
+    # Drop duplicates based on the combination of 'filepath', 'words', and 'startframe'
+    unique_df = df.drop_duplicates( subset=['filepath', 'words', 'startframe'] )
+
+    # Convert the unique rows into a set of tuples
+    unique_set = set( zip( unique_df['file_path'], unique_df['words'], unique_df['startframe'] ) )
+
+    return unique_set
+
 
