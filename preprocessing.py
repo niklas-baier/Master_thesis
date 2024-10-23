@@ -260,10 +260,10 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
+    dataframe = remove_duplicates(dataframe)
     if run_details.augmentation == 'Y':
-        pass
-    breakpoint()
-
+        # only take close micorphone samples with no background music
+        dataframe = get_clean_audio_without_music(dataframe)
 
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
     train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
@@ -485,11 +485,10 @@ def get_clean_audio_without_music(df):
 
 def remove_duplicates(df):
     # Drop duplicates based on the combination of 'filepath', 'words', and 'startframe'
-    unique_df = df.drop_duplicates( subset=['filepath', 'words', 'startframe'] )
+    unique_df = df.drop_duplicates( subset=['file_path', 'words', 'startframe'] )
 
-    # Convert the unique rows into a set of tuples
-    unique_set = set( zip( unique_df['file_path'], unique_df['words'], unique_df['startframe'] ) )
 
-    return unique_set
+
+    return unique_df
 
 

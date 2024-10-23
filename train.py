@@ -289,7 +289,7 @@ def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df)
 
     if not (mapped_dataset_exists( train_dataset_path )):
         # save the data from the dataframe in a csv fails if the file already exists
-        eval_df.to_csv( "shuffled_test_dataframe.csv", mode="x" )
+        eval_df.to_csv( "shuffled_test_dataframe.csv")
         print( "dataset not mapped yet" )
         dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
         train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features, test_dataset=False )
