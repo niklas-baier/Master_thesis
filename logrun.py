@@ -18,6 +18,7 @@ def log_run(run_details):
     results['cer'] = results.apply(lambda row: cer(reference=row['predictions'], hypothesis=row['labels']), axis=1)
     run_average_cer = results['cer'].mean()
     filepath = "run_logs.csv"
+    commit_hash, commit_branch = log_current_commit()
     if(Path(filepath).is_file()):
         df = pd.read_csv(filepath)
     else:
@@ -35,11 +36,32 @@ def log_run(run_details):
         "results_path": results_path,
         "notes": "Initial run with custom dataset",
         "checkpoint-path": run_details.checkpoint_path,
+        "Training" : run_details.train_state,
+        "commit_hash": commit_hash
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(filepath, index=False)
     save_latex_csv(df)
-    breakpoint()
     create_latex_table( df, "str" )
+
+
+import subprocess
+
+
+def log_current_commit():
+    try:
+        commit_message = subprocess.check_output( ["git", "log", "-1", "--pretty=%B"] ).strip().decode( "utf-8" )
+        commit_hash = subprocess.check_output( ["git", "rev-parse", "HEAD"] ).strip().decode( "utf-8" )
+
+
+
+        print( f"Current commit hash: {commit_hash}" )
+        print( f"Current commit message: {commit_message}" )
+        return commit_hash, commit_message
+
+    except subprocess.CalledProcessError as e:
+        print( f"An error occurred while logging the git information: {e}" )
+
+
 
 

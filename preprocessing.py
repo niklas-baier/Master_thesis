@@ -446,7 +446,11 @@ def extract_letters(input_string):
 def generate_dfs(args, run_details):
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
         environment=args.environment, dataset_name=args.dataset_name)
+
     df = load_and_concatenate_json_files(transcript_dev_path)
+
+    if run_details.dataset_name == "dipco":
+        assert(df.shape[0] == 3673)
     eval_df = load_and_concatenate_json_files(transcript_eval_path)
     if run_details.dataset_name == 'Chime6':
         train_df = load_and_concatenate_json_files(transcript_train_path)
