@@ -275,15 +275,25 @@ def dipco_parsing(dataframe, run_details, mode_path):
         dataframe = get_clean_audio_without_music(dataframe)
 
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
-    train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
+
+    #train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
+    train_dataframe,test_dataframe = dipco_split_sessions(dataframe)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
+    train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
+    eval_dataframe.reset_index( drop=True, inplace=True )
     train_dataframe.reset_index(drop=True, inplace=True)
     test_dataframe.reset_index(drop=True, inplace=True)
     if run_details.developer_mode == 'Y':
-        return train_dataframe.sample(n=100,random_state=42), test_dataframe.sample(n=100, random_state=42)
+        return train_dataframe.sample(n=100,random_state=42),eval_dataframe.sample(n=100, random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
-        return train_dataframe, test_dataframe
+        return train_dataframe, eval_dataframe,test_dataframe
+def dipco_split_sessions(dataframe):
+    session_ids = dataframe['session_id'].unique()
+    eval_session = session_ids[0]
+    eval_dataframe = dataframe[dataframe['session_id'] == eval_session]
+    train_dataframe = dataframe[dataframe['session_id'] != eval_session]
+    return train_dataframe, eval_dataframe
 def drop_columns_dipco(dataframe, run_details):
     if run_details.task =='classification':
         dataframe.drop(
@@ -470,10 +480,10 @@ def generate_dfs(args, run_details):
 
 
     else:
-        expanded_df, dev_df = dipco_parsing(df, run_details, dev_path)
+
+        expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
         # TODO Verify
-        eval_df, eval_df2 = dipco_parsing(eval_df, run_details, eval_path)
-        eval_df = pd.concat([eval_df, eval_df2])
+
     eval_df['results'] = eval_df['words']
     eval_df.reset_index(drop=True, inplace=True)
     return expanded_df, dev_df, eval_df

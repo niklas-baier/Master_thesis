@@ -29,9 +29,11 @@ class RunDetails:
     task: str  #classification or transciption or joint
     developer_mode: str  # small datasets?
     augmentation: str  # use of synthetic noise augmentation
+    run_notes: str
     additional_tokens: str = field( default="N" )  # should additonal tokens be added
     checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
     dataset_evaluation_part: str = field(default ="eval")
+
 
 
 from typing import Dict
@@ -188,6 +190,8 @@ def get_parser():
                          help='Use synthetic noise augmentation can be Y(es) or N(o)' )
     parser.add_argument( '--additional_tokens', type=str, choices=['Y', 'N'], required=True,
                          help='Add additonal tokens of the dataset to the network can be Y(es) or N(o)' )
+    parser.add_argument( '--run_notes', type=str, required=True,
+                         help='Documentation of the run' )
 
     return parser
 

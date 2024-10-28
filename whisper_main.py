@@ -128,9 +128,10 @@ torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
 parser = get_parser()
 args = parser.parse_args()
 formated_date = preprocessing.get_formated_date()
+
 run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                          train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                         developer_mode=args.developer_mode, augmentation=args.augmentation, additional_tokens=args.additional_tokens)
+                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens)
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)

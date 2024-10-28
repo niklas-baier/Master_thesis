@@ -34,7 +34,7 @@ def log_run(run_details, run_results):
         "wer": run_average_wer,
         "cer": run_average_cer,
         "results_path": results_path,
-        "notes": "Initial run with custom dataset",
+        "notes": run_details.run_notes,
         "checkpoint-path": run_details.checkpoint_path,
         "Training" : run_details.train_state,
         "commit_hash": commit_hash,
