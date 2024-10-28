@@ -15,7 +15,7 @@ import numpy as np
 from augmentations import filter_p_audio, add_file_name
 from evaluation import  analysis_special_tokens
 from preprocessing import get_formated_date
-from train import transcribe_audio
+from train import RunResults, transcribe_audio
 
 
 
@@ -86,6 +86,7 @@ def visualize_wer(grouped, model_type):
             names.append( str( name ) )
 
         wers.append( wer )
+
     plt.figure( figsize=(8, 6) )
     plt.bar( names, wers )
     plt.ylabel( f'Mean average WER per {model_type[0]}' )
@@ -94,6 +95,8 @@ def visualize_wer(grouped, model_type):
 
     plt.savefig( f'Figures/{(partition_type := (model_type[0]))} bar_plot.png', format='png' )
     wandb.log( {f"{dataset_name}_{model_name}": wandb.Image( plt )} )
+    dict_of_wers = {k: v for k, v in zip( names, wers )}
+    return dict_of_wers
 
 
 def extract_info(file_path, pattern, group_idx):
@@ -197,10 +200,11 @@ def visualize_results(transcription_csv_path, run_details):
         print( f"Directory '{directory}' created." )
     else:
         print( f"Directory '{directory}' already exists." )
-    visualize_wer( grouped_token, ["special_token", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
-    visualize_wer( grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
-    visualize_wer( grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
-    visualize_wer( grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
+    dict_of_special_tokens = visualize_wer( grouped_token, ["special_token", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
+    dict_of_wer_per_session = visualize_wer( grouped_ses, ["session", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
+    dict_wer_per_mic_type = visualize_wer( grouped_mic_type, ["mic_type", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
+    dict_wer_per_mic = visualize_wer( grouped_mic, ["mic", f"{run_details.dataset_name}", f"{run_details.model_id}"] )
+    run_results = RunResults(wer_per_session=dict_of_wer_per_session, wer_per_special_token=dict_of_special_tokens, wer_per_mictype=dict_wer_per_mic_type, wer_per_mic= dict_wer_per_mic)
     plot_histograms( data, run_details=run_details )
     # TODO sort by WER and CER what percentage is close what percentage
 
@@ -209,6 +213,7 @@ def visualize_results(transcription_csv_path, run_details):
     # Calculate the mean of the error rates
     mean_error_rate = error_rates.mean()
     print( mean_error_rate )
+    return run_results
 
 
 def plot_waveform(waveform, sample_rate):

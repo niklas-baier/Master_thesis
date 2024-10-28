@@ -45,11 +45,11 @@ def run_details_valid(run_details):
                                     print(f"{run_details.developer_mode} as development_mode valid")
                                     if run_details.augmentation in ['Y', 'N']:
                                         print(f"{run_details.augmentation} as augmentation mode valid")
-                                        if run_details.augmentation == ['Y']:
-                                            assert run_details.train_state == "T", "augmentation only in training mode valid"
-
-
-                                        return True
+                                        if run_details.dataset_evaluation_part in ["eval", "dev"]:
+                                            print(f"{run_details.dataset_evaluation_part} as dataset_evaluation valid")
+                                            if run_details.augmentation == ['Y']:
+                                                assert run_details.train_state == "T", "augmentation only in training mode valid"
+                                            return True
 
     return False
 

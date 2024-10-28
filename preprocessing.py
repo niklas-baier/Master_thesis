@@ -166,20 +166,20 @@ def generate_microphone_paths(row,mode_path):
 
 def chime_generate_microphone_paths(row, mode_path):
     paths = []
-    from whisper_main import train_path
-    if mode_path == train_path:
-        for i in range(1, 5):
+    dataset_paths = Paths.get_instance()
+    if mode_path == dataset_paths.train_path:
+        for i in range(1, 2):
             for j in range(1,7):
                 path = f"{mode_path}/{row['session_id']}_U0{j}.CH{i}.wav"
                 if (j == 3 or j==4) :
-                    pass
+                    pass #TODO does this work as intended ?
                 else:
                     paths.append(path)
 
 
 
     else:
-        for i in range(1, 5):
+        for i in range(1, 2):
             path = f"{mode_path}/{row['session_id']}_{row['ref']}.CH{i}.wav"
             paths.append(path)
 
@@ -213,26 +213,35 @@ def chime_parsing(dataframe, run_details,mode_path):
             "Each entry in the 'frames' column must be a list of exactly two elements [startframe, endframe].")
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
+    #dataframe = dataframe.query('words !=""')
+
+    dataframe = remove_duplicates( dataframe )
+    dataframe = drop_chime_columns( dataframe, mode_path, run_details )
+    if run_details.developer_mode == 'Y':
+        return dataframe.sample(n=100, random_state=42)
+    else:
+        return dataframe
+
+
+def drop_chime_columns(dataframe, mode_path, run_details):
     if run_details.task == 'classification':
         dataframe.drop(
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
-                     'session_id', 'words'], inplace=True) # don't drop the speaker but wordss for the time being
+                     'session_id', 'words'], inplace=True )  # don't drop the speaker but wordss for the time being
     else:
-        from whisper_main import train_path
-        if mode_path == train_path:
+        dataset_paths = Paths.get_instance()
+        if mode_path == dataset_paths.train_path:
             dataframe.drop(
                 columns=['end_time', 'start_time', 'endframe',
-                         'session_id', 'speaker', 'duration','frames','start','end'], inplace=True)
+                         'session_id', 'speaker', 'duration', 'frames', 'start', 'end'], inplace=True )
 
         else:
             dataframe.drop(
                 columns=['end_time', 'start_time', 'ref', 'endframe',
-                         'session_id', 'speaker', 'duration','frames','start','end','location'], inplace=True) # additonally drop location and ref
-    dataframe.reset_index(drop=True, inplace=True)
-    if run_details.developer_mode == 'Y':
-        return dataframe.sample(n=100)
-    else:
-        return dataframe
+                         'session_id', 'speaker', 'duration', 'frames', 'start', 'end', 'location'],
+                inplace=True )  # additonally drop location and ref
+    dataframe.reset_index( drop=True, inplace=True )
+    return dataframe
 
 
 def dipco_parsing(dataframe, run_details, mode_path):
@@ -446,16 +455,14 @@ def extract_letters(input_string):
 def generate_dfs(args, run_details):
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
         environment=args.environment, dataset_name=args.dataset_name)
-
+    Paths.initialize(args.environment, args.dataset_name)
     df = load_and_concatenate_json_files(transcript_dev_path)
 
     if run_details.dataset_name == "dipco":
         assert(df.shape[0] == 3673)
     eval_df = load_and_concatenate_json_files(transcript_eval_path)
     if run_details.dataset_name == 'Chime6':
-        train_df = load_and_concatenate_json_files(transcript_train_path)
-    transcriptions = df['words']
-    if run_details.dataset_name == 'Chime6':
+        train_df = load_and_concatenate_json_files( transcript_train_path )
         dev_df = chime_parsing(df, run_details, dev_path)  # dev
         eval_df = chime_parsing(eval_df, run_details, eval_path)
         expanded_df = chime_parsing(train_df, run_details, train_path)
@@ -470,6 +477,30 @@ def generate_dfs(args, run_details):
     eval_df['results'] = eval_df['words']
     eval_df.reset_index(drop=True, inplace=True)
     return expanded_df, dev_df, eval_df
+class Paths:
+    _instance = None
+
+    def __init__(self, dataset_path=None, dev_path=None, eval_path=None,
+                 transcript_dev_path=None, transcript_eval_path=None,
+                 train_path=None, transcript_train_path=None):
+        self.dataset_path = dataset_path
+        self.dev_path = dev_path
+        self.eval_path = eval_path
+        self.transcript_dev_path = transcript_dev_path
+        self.transcript_eval_path = transcript_eval_path
+        self.train_path = train_path
+        self.transcript_train_path = transcript_train_path
+
+    @classmethod
+    def initialize(cls, environment, dataset_name):
+        paths = setup_paths(environment, dataset_name)
+        cls._instance = cls(*paths)
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            raise Exception("Paths have not been initialized.")
+        return cls._instance
 
 def generate_transcription_csv_path(run_details):
     model_size = get_model_size(run_details.model_id)

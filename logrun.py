@@ -8,7 +8,7 @@ from latex import create_latex_table, save_latex_csv
 from preprocessing import get_formated_date
 
 
-def log_run(run_details):
+def log_run(run_details, run_results):
     results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
     #TODO
@@ -37,7 +37,14 @@ def log_run(run_details):
         "notes": "Initial run with custom dataset",
         "checkpoint-path": run_details.checkpoint_path,
         "Training" : run_details.train_state,
-        "commit_hash": commit_hash
+        "commit_hash": commit_hash,
+        "dataset_evaluation_part": run_details.dataset_evaluation_part,
+        "wer_per_mic_type": run_results.wer_per_mictype,
+        "wer_per_session": run_results.wer_per_session ,
+        "wer_per_special_token": run_results.wer_per_special_token ,
+        "wer_per_mic": run_results.wer_per_mic,
+        # wer far field microphones
+        # wer close microphones
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(filepath, index=False)

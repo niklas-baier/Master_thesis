@@ -31,6 +31,7 @@ def compute_chime_metrics(pred):
         os.makedirs(results_directory)
     file_path = os.path.join(results_directory, "results.json")
 
+
     with open(file_path, "w") as f:
         json.dump(results, f, indent=4)
 
@@ -133,6 +134,7 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
+
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
@@ -154,8 +156,8 @@ processor.save_pretrained(training_args.output_dir)
 if run_details.train_state == 'NT':
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )
-    visualize_results(transcription_csv_path_trained, run_details)
-    log_run( run_details=run_details )
+    run_results = visualize_results(transcription_csv_path_trained, run_details)
+    log_run( run_details=run_details, run_results=run_results )
 else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
     trainer.train()
@@ -163,11 +165,11 @@ else:
     #model.push_to_hub(peft_model_id)
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )
-    visualize_results( transcription_csv_path_trained, run_details )
+    run_results = visualize_results( transcription_csv_path_trained, run_details )
 
     plot_loss(trainer, run_details=run_details)
     plot_WER( trainer, run_details=run_details )
-    log_run(run_details=run_details)
+    log_run(run_details=run_details, run_results=run_results)
 
     #TODO take it from the mode
     pass

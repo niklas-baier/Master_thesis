@@ -31,8 +31,16 @@ class RunDetails:
     augmentation: str  # use of synthetic noise augmentation
     additional_tokens: str = field( default="N" )  # should additonal tokens be added
     checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
+    dataset_evaluation_part: str = field(default ="eval")
 
 
+from typing import Dict
+@dataclass
+class RunResults:
+    wer_per_session: Dict[str, float]
+    wer_per_mictype: Dict[str, float]
+    wer_per_special_token: Dict[str, float]
+    wer_per_mic: Dict[str, float]
 
 
 
