@@ -155,7 +155,8 @@ def visualize_results(transcription_csv_path, run_details):
 
     data['chime_ref'] = [chime_normalisation( text ) for text in data["words"]]
     data['chime_hyp'] = [chime_normalisation( text ) for text in data["results"]]
-
+    data = data[data['chime_ref'] != ""]
+    # only counting the data that is not empty to the WER as it is otherwise undefined ?
     wer = jiwer.wer( list( data["chime_ref"] ), list( data["chime_hyp"] ) )
     # WER of the whisper normalizer
     print( f"WER: {wer * 100:.2f} %" )

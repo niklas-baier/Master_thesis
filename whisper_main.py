@@ -15,6 +15,20 @@ import torch
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+def compute_metrics(pred):
+    pred_ids = pred.predictions
+    label_ids = pred.label_ids
+
+    # replace -100 with the pad_token_id
+    label_ids[label_ids == -100] = tokenizer.pad_token_id
+
+    # we do not want to group tokens when computing the metrics
+    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+
+    wer = 100 * metric.compute(predictions=pred_str, references=label_str)
+
+    return {"wer": wer}
 def compute_chime_metrics(pred):
     pred_ids = pred.predictions
     label_ids = pred.label_ids
@@ -43,7 +57,8 @@ def compute_chime_metrics(pred):
         chime_normalized_prediction = [evaluation.chime_normalisation( pred ) for pred in pred_str]
 
         # wer = 100 * metric.compute(predictions=chime_normalized_prediction, references=chime_normalized_reference)
-        wer = jiwer.wer( hypothesis=list( chime_normalized_prediction ), reference=list( chime_normalized_reference ) )
+        #wer = jiwer.wer( hypothesis=list( chime_normalized_prediction ), reference=list( chime_normalized_reference ) )
+        wer = jiwer.wer(hypothesis=label_str, reference = pred_str)
         # TODO different normalizers for eval and testing ?
 
         return {"wer": wer}
@@ -56,7 +71,7 @@ def transcribe_results(*, test_dataset, trainer, run_details):
             )
         model = PeftModel.from_pretrained( model, run_details.model_id )
         model.config.use_cache = True
-
+    trainer.compute_metrics = compute_chime_metrics
     trainer.evaluate( eval_dataset=test_dataset )
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
     file_path = os.path.join( results_directory, "results.json" )
@@ -135,7 +150,6 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
-
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)

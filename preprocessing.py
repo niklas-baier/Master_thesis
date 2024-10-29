@@ -169,10 +169,11 @@ def chime_generate_microphone_paths(row, mode_path):
     dataset_paths = Paths.get_instance()
     if mode_path == dataset_paths.train_path:
         for i in range(1, 2):
-            for j in range(1,7):
+            for j in range(2,3):
                 path = f"{mode_path}/{row['session_id']}_U0{j}.CH{i}.wav"
                 if (j == 3 or j==4) :
-                    pass #TODO does this work as intended ?
+                    paths.append(path)
+
                 else:
                     paths.append(path)
 
@@ -215,7 +216,7 @@ def chime_parsing(dataframe, run_details,mode_path):
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     #dataframe = dataframe.query('words !=""')
 
-    dataframe = remove_duplicates( dataframe )
+    #dataframe = remove_duplicates( dataframe ) this removes 2 values that are apparently the same
     dataframe = drop_chime_columns( dataframe, mode_path, run_details )
     if run_details.developer_mode == 'Y':
         return dataframe.sample(n=100, random_state=42)
@@ -421,6 +422,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
         mapping_function = prepare_noisedataset_seq2seq
     else:
         mapping_function = prepare_dataset_seq2seq
+    breakpoint()
 
 
     map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
@@ -468,20 +470,26 @@ def generate_dfs(args, run_details):
     Paths.initialize(args.environment, args.dataset_name)
     df = load_and_concatenate_json_files(transcript_dev_path)
 
-    if run_details.dataset_name == "dipco":
-        assert(df.shape[0] == 3673)
-    eval_df = load_and_concatenate_json_files(transcript_eval_path)
+
     if run_details.dataset_name == 'Chime6':
+        assert(n:= df.shape[0] == 7437) # 3 samples different
+        eval_df = load_and_concatenate_json_files(transcript_eval_path)
+        assert (eval_n := eval_df.shape[0] == 11028)
         train_df = load_and_concatenate_json_files( transcript_train_path )
-        dev_df = chime_parsing(df, run_details, dev_path)  # dev
-        eval_df = chime_parsing(eval_df, run_details, eval_path)
-        expanded_df = chime_parsing(train_df, run_details, train_path)
+        assert(train_n := train_df.shape[0] == 79967) # 13 samples different
+        dev_df = chime_parsing(df, run_details, dev_path)  # dev 14872
+
+        eval_df = chime_parsing(eval_df, run_details, eval_path) # 22051
+        expanded_df = chime_parsing(train_df, run_details, train_path) # 399735
 
 
 
     else:
+        if run_details.dataset_name == "dipco":
+            assert (original_size := df.shape[0] == 3673)
 
         expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
+        assert((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
         # TODO Verify
 
     eval_df['results'] = eval_df['words']
