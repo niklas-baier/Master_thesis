@@ -76,10 +76,10 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
 
 def generate_training_args(run_details):
-    train_batch_size = 8
-    per_device_eval_batch_size = 8
-    max_steps = 300
-    loggings_steps = 100
+    train_batch_size = 16
+    per_device_eval_batch_size = 16
+    max_steps = 1000
+    loggings_steps = 50
     save_steps = 50
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'

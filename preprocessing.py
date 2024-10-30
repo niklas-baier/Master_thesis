@@ -486,7 +486,7 @@ def generate_dfs(args, run_details):
 
     else:
         if run_details.dataset_name == "dipco":
-            assert (original_size := df.shape[0] == 3673)
+            assert ((original_size := df.shape[0]) == 3673)
 
         expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
         assert((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
