@@ -1,2 +1,4 @@
 *.hf/
 *.arrow
+Figures/
+latex.csv
