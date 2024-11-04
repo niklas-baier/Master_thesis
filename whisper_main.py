@@ -141,6 +141,7 @@ os.environ['WANDB_PROJECT'] = 'WHISPER'
 os.environ['WAND_LOG_MODEL'] = 'true'
 torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
 parser = get_parser()
+breakpoint()
 args = parser.parse_args()
 formated_date = preprocessing.get_formated_date()
 
