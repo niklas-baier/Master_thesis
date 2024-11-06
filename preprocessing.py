@@ -23,24 +23,31 @@ def dipco_paths(dataset_path):
     transcript_eval_path = os.path.join(dataset_path, 'transcriptions/eval')
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path
 
-def chime_paths(dataset_path):
+def chime_paths(dataset_path, run_details):
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path)
+
     train_path = os.path.join(dataset_path, 'audio/train')
     transcript_train_path = os.path.join(dataset_path, 'transcriptions/train')
+    if run_details.dataset_evaluation_part == "dev":
+        dev_path, eval_path = eval_path, dev_path
+        transcript_dev_path, transcript_eval_path = transcript_eval_path, transcript_dev_path
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path
 
-def setup_paths(environment, dataset_name):
+def setup_paths(environment, dataset_name, run_details):
     dataset_path = "/project/data_asr/dipco/Dipco"
     bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
-            return chime_paths(dataset_path=dataset_path)
+            return chime_paths(dataset_path=dataset_path, run_details=run_details)
 
 
 
         else:
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
+            if run_details.dataset_evaluation_part == "dev":
+                dev_path, eval_path = eval_path,dev_path
+                transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path,'',''
     elif environment == 'bwcluster':
 
@@ -55,6 +62,9 @@ def setup_paths(environment, dataset_name):
             dataset_path = f'{bw_workplace_path}/Dipco'
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
                 dataset_path=dataset_path)
+            if run_details.dataset_evaluation_part == "dev":
+                dev_path, eval_path = eval_path,dev_path
+                transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, '', ''
 
 
@@ -64,6 +74,9 @@ def setup_paths(environment, dataset_name):
             return chime_paths(dataset_path)
         else:
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path=dataset_path)
+            if run_details.dataset_evaluation_part == "dev":
+                dev_path, eval_path = eval_path,dev_path
+                transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
 def generate_dataset_paths(run_details):
@@ -465,8 +478,8 @@ def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
 def generate_dfs(args, run_details):
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
-        environment=args.environment, dataset_name=args.dataset_name)
-    Paths.initialize(args.environment, args.dataset_name)
+        environment=args.environment, dataset_name=args.dataset_name, run_details=run_details)
+    Paths.initialize(args.environment, args.dataset_name, run_details=run_details)
     df = load_and_concatenate_json_files(transcript_dev_path)
 
 
@@ -510,8 +523,8 @@ class Paths:
         self.transcript_train_path = transcript_train_path
 
     @classmethod
-    def initialize(cls, environment, dataset_name):
-        paths = setup_paths(environment, dataset_name)
+    def initialize(cls, environment, dataset_name, run_details):
+        paths = setup_paths(environment, dataset_name, run_details=run_details)
         cls._instance = cls(*paths)
 
     @classmethod
