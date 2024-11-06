@@ -192,6 +192,7 @@ def get_parser():
                          help='Add additonal tokens of the dataset to the network can be Y(es) or N(o)' )
     parser.add_argument( '--run_notes', type=str, required=True,
                          help='Documentation of the run' )
+    parser.add_argument('--dataset_evaluation_part', type=str, choices=['dev','eval'],required=False)
 
     return parser
 

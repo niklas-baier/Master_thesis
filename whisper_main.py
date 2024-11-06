@@ -58,7 +58,7 @@ def compute_chime_metrics(pred):
 
         # wer = 100 * metric.compute(predictions=chime_normalized_prediction, references=chime_normalized_reference)
         #wer = jiwer.wer( hypothesis=list( chime_normalized_prediction ), reference=list( chime_normalized_reference ) )
-        wer = jiwer.wer(hypothesis=label_str, reference = pred_str)
+        wer = jiwer.wer(hypothesis=chime_normalized_prediction, reference = chime_normalized_reference)
         # TODO different normalizers for eval and testing ?
 
         return {"wer": wer}
