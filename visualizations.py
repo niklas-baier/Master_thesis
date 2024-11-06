@@ -252,7 +252,7 @@ def plot_spectrogram(specgram, title=None, ylabel="freq_bin", ax=None):
 
 def plot_tsne(trainer, test_dataset, torch_dtype, run_details, processor):
     def custom_compute_metrics(eval_pred):
-        breakpoint()
+
         logits, labels, hidden_states = eval_pred
 
         # Optionally, do something with hidden_states or logits
@@ -263,7 +263,6 @@ def plot_tsne(trainer, test_dataset, torch_dtype, run_details, processor):
 
     def compute_loss(self, model, inputs, return_outputs=False):
         # Pass 'output_hidden_states=True' to the model's forward pass
-        breakpoint()
         outputs = model( **inputs, output_hidden_states=True )
 
         # Outputs: (loss, logits, past_key_values, decoder_hidden_states, hidden_states, attentions, cross_attentions)
