@@ -99,6 +99,7 @@ def boxplot_wer(data):
 
     plt.suptitle( 'ErrorRate Components by Length Group' if 'length_group' in data.columns else 'ErrorRate Components' )
     plt.tight_layout()
+    plt.savefig("boxplot")
     plt.show()
 
 
