@@ -507,7 +507,23 @@ def generate_dfs(args, run_details):
 
     eval_df['results'] = eval_df['words']
     eval_df.reset_index(drop=True, inplace=True)
+    if run_details.oversampling != 1:
+        expanded_df = oversample_clean_audio( expanded_df, run_details )
     return expanded_df, dev_df, eval_df
+
+
+def oversample_clean_audio(expanded_df, run_details):
+    import numpy as np
+    from augmentations import filter_p_audio
+    np.random.seed( 42 )
+    near_person_samples = filter_p_audio( expanded_df=expanded_df )
+    oversampled_sub_df = pd.concat( [near_person_samples] * (run_details.oversampling - 1), ignore_index=True )
+    expanded_df = pd.concat( [expanded_df, oversampled_sub_df], ignore_index=True )
+    expanded_df = expanded_df.iloc[np.random.permutation( len( expanded_df ) )]
+    expanded_df.drop(columns=['file_name'], inplace=True)
+    return expanded_df
+
+
 class Paths:
     _instance = None
 

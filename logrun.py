@@ -45,6 +45,7 @@ def log_run(run_details, run_results):
         "wer_per_session": run_results.wer_per_session ,
         "wer_per_special_token": run_results.wer_per_special_token ,
         "wer_per_mic": run_results.wer_per_mic,
+        "oversampling": run_details.oversampling,
 
         # wer far field microphones
         # wer close microphones

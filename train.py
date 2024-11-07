@@ -30,9 +30,11 @@ class RunDetails:
     developer_mode: str  # small datasets?
     augmentation: str  # use of synthetic noise augmentation
     run_notes: str
+    oversampling: int
     additional_tokens: str = field( default="N" )  # should additonal tokens be added
     checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
     dataset_evaluation_part: str = field(default ="eval")
+
 
 
 
@@ -193,6 +195,9 @@ def get_parser():
     parser.add_argument( '--run_notes', type=str, required=True,
                          help='Documentation of the run' )
     parser.add_argument('--dataset_evaluation_part', type=str, choices=['dev','eval'],required=False)
+    parser.add_argument( '--oversampling_clean_data', type=int, choices=[1,2,3,4,5,6,7,8,9,10], required= True )
+
+
 
     return parser
 
@@ -299,7 +304,6 @@ def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df)
     eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if run_details.developer_mode == "Y":
         eval_df = eval_df.head(100)
-
     if not (mapped_dataset_exists( train_dataset_path )):
         # save the data from the dataframe in a csv fails if the file already exists
         eval_df.to_csv( "shuffled_test_dataframe.csv")
@@ -312,7 +316,6 @@ def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df)
         map_datasets( run_details=run_details, train_dataset=train_dataset,
                       eval_dataset=eval_dataset,
                       test_dataset=test_dataset, dataset_paths=dataset_paths )
-
 
     train_dataset = datasets.load_from_disk( train_dataset_path )
     # remove the unncessary columns
