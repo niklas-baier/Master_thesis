@@ -1,5 +1,6 @@
 import evaluate
 import json
+import time
 from peft import PeftModel, PeftConfig
 import jiwer
 import evaluation
@@ -146,7 +147,7 @@ formated_date = preprocessing.get_formated_date()
 
 run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                          train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data)
+                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint)
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
@@ -175,7 +176,10 @@ if run_details.train_state == 'NT':
     log_run( run_details=run_details, run_results=run_results )
 else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
+    start_time = time.perf_counter()
     trainer.train()
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
     peft_model_id = 'waterman3000/peft'
     #model.push_to_hub(peft_model_id)
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
@@ -184,7 +188,7 @@ else:
 
     plot_loss(trainer, run_details=run_details)
     plot_WER( trainer, run_details=run_details )
-    log_run(run_details=run_details, run_results=run_results)
+    log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
 
     #TODO take it from the mode
     pass

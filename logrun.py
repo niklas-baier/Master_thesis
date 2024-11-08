@@ -8,7 +8,7 @@ from latex import create_base_line_latex_tables, create_latex_table, save_latex_
 from preprocessing import get_formated_date
 
 
-def log_run(run_details, run_results):
+def log_run(run_details, run_results, training_time=0):
     results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
     #TODO
@@ -46,6 +46,7 @@ def log_run(run_details, run_results):
         "wer_per_special_token": run_results.wer_per_special_token ,
         "wer_per_mic": run_results.wer_per_mic,
         "oversampling": run_details.oversampling,
+        "training_time": training_time
 
         # wer far field microphones
         # wer close microphones

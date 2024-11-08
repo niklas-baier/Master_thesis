@@ -79,8 +79,11 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
 
 def generate_training_args(run_details):
-    train_batch_size = 16
-    per_device_eval_batch_size = 16
+    train_batch_size = 32
+    per_device_eval_batch_size = 32
+    if (run_details.environment == "bwcluster"):
+        train_batch_size = 64
+        per_device_eval_batch_size = 64
     max_steps = 1000
     loggings_steps = 50
     save_steps = 50
@@ -128,8 +131,8 @@ def generate_training_args(run_details):
         metric_for_best_model="wer",
         greater_is_better=False,
         remove_unused_columns=True,
-        save_total_limit=4
-
+        save_total_limit=4,
+        dataloader_num_workers=8
         )
     return training_args
 
@@ -197,6 +200,7 @@ def get_parser():
                          help='Documentation of the run' )
     parser.add_argument('--dataset_evaluation_part', type=str, choices=['dev','eval'],required=False)
     parser.add_argument( '--oversampling_clean_data', type=int, choices=[1,2,3,4,5,6,7,8,9,10], required= True )
+    parser.add_argument( '--checkpoint', type=str, required=False )
 
 
 
