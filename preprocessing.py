@@ -15,6 +15,7 @@ from typing import List
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
+import numpy as np
 def dipco_paths(dataset_path):
 
     dev_path = os.path.join(dataset_path, 'audio/dev')
@@ -284,14 +285,15 @@ def dipco_parsing(dataframe, run_details, mode_path):
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
     dataframe = remove_duplicates(dataframe)
-    if run_details.augmentation == 'Y':
-        # only take close micorphone samples with no background music
-        dataframe = get_clean_audio_without_music(dataframe)
-
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
 
     #train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe,test_dataframe = dipco_split_sessions(dataframe)
+
+    if run_details.augmentation == 'Y':
+        breakpoint()
+        # only take close micorphone samples with no background music
+        test_dataframe = add_noise_paths(test_dataframe)
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
@@ -302,6 +304,18 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe.sample(n=100,random_state=42),eval_dataframe.sample(n=100, random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
         return train_dataframe, eval_dataframe,test_dataframe
+
+
+def add_noise_paths(dataframe):
+    dataframe = get_clean_audio_without_music( dataframe )
+    noise_paths = augmentations.get_noises()
+    dataframe['noise_paths'] = noise_paths['file_path']
+    np.random.seed( 42 )
+    sampled_indices = np.random.randint( 0, len( noise_paths ), size=len( dataframe ) )
+    dataframe['noise_path'] = noise_paths['file_path'].values[sampled_indices]
+    return dataframe
+
+
 def dipco_split_sessions(dataframe):
     session_ids = dataframe['session_id'].unique()
     eval_session = session_ids[0]
@@ -330,10 +344,8 @@ def _build_basic_features(run_details):
         }
     if run_details.augmentation == 'Y':
         basic_features.update( {
-            'snr': Value( 'int64' ),
-            'filepath_noise': Value( 'string' ),
-            'words': Value( 'string' ),
-            'file_name': Value( 'string' )
+            'noise_path': Value( 'string' ),
+            'words': Value( 'string' )
             } )
     else:
         basic_features['words'] = Value( 'string' )
@@ -413,8 +425,10 @@ def prepare_noisedataset_seq2seq(batch):
                                             num_frames=batch["num_frames"])
     breakpoint()
     # overlay the audioforms
-    waveform = augmentations.apply_noises(filepath_original_sound=batch["file_path"],filepath_synthetic_noise=batch["filepath_noise"], snrs=batch['snr'])
+
+    waveform = augmentations.apply_noises(filepath_original_sound=batch["file_path"],filepath_synthetic_noise=batch["filepath_noise"])
     #TODO shape is 3,43453000
+    breakpoint()
 
     input = waveform
     batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
@@ -562,7 +576,7 @@ def get_clean_audio_without_music(df):
     music_start_frames = {key: float(value)*16000 for key,value in music_start_seconds.items()}
     df["music_start"] = df['session_id'].map( lambda x, mapping=music_start_frames: mapping.get( x, None ) )
     no_background_music_samples = df.query("music_start > endframe")
-    no_background_music_samples.drop_columns(['music_start'], inplace=True)
+    no_background_music_samples.drop(columns=['music_start'], inplace=True)
     return no_background_music_samples
 
 def remove_duplicates(df):

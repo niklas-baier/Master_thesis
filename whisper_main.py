@@ -175,7 +175,6 @@ if run_details.train_state == 'NT':
     log_run( run_details=run_details, run_results=run_results )
 else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-    breakpoint()
     trainer.train()
     peft_model_id = 'waterman3000/peft'
     #model.push_to_hub(peft_model_id)

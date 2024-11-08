@@ -10,23 +10,20 @@ from audioprocessing import get_spectrogram
 
 
 def get_noises():
-    csv_file = pd.read_csv( 'syntheticdata/ESC-50/meta/esc50.csv' )
-    print( csv_file.head() )
-    grouped_by_name = csv_file.groupby( 'category' )
-    path_noise = csv_file['filename'].iloc[0]
+    csv_df = pd.read_csv( 'syntheticdata/ESC-50/meta/esc50.csv' )
+    print( csv_df.head() )
+    grouped_by_name = csv_df.groupby( 'category' )
+    path_noise = csv_df['filename'].iloc[0]
+    csv_df['file_path'] = csv_df['filename'].apply(get_path_noise)
 
-    print( os.getcwd() )
+    #waveform = waveform.numpy().T
+    taxonomy_dict = get_noise_taxonomy()
+    filtered_df = csv_df[csv_df['category'].isin(taxonomy_dict['Interior/domestic sounds'] )]
+    return filtered_df
+def get_path_noise(filename):
     cwd = os.getcwd()
-
-    filepath = f'{cwd}/syntheticdata/ESC-50/audio/{path_noise}'
-    waveform, sample_rate = torchaudio.load( filepath )
-    waveform = waveform.numpy().T
-    metadata = torchaudio.info( filepath )
-    print( metadata )
-
-    # Play the sound using sounddevice
-    return filepath
-
+    file_path = f'{cwd}/syntheticdata/ESC-50/audio/{filename}'
+    return file_path
 
 def create_augmentations():
     spec = get_spectrogram( power=None )
@@ -36,9 +33,9 @@ def create_augmentations():
     spec_09 = stretch( spec, overriding_rate=0.9 )
 
 
-def apply_noises(filepath_original_sound, filepath_synthetic_noise, snrs):
+def apply_noises(filepath_original_sound, filepath_synthetic_noise):
     speech, sr = torchaudio.load( filepath_original_sound )
-    noise, syn_sr = torchaudio.load( filepath_original_sound )
+    noise, syn_sr = torchaudio.load( filepath_synthetic_noise )
     assert sr == syn_sr, f"the sample rates of the speech {sr} and of the noise {syn_sr}are different and need to be resampled "
     noise = noise[:, :min( speech.shape[1], noise.shape[1] )]
     snr_dbs = torch.tensor( [20, 10, 3] )
@@ -48,7 +45,7 @@ def apply_noises(filepath_original_sound, filepath_synthetic_noise, snrs):
     return noisy_speeches
 
 
-def get_noise_taxonomy(dataframe):
+def get_noise_taxonomy():
     sound_dict = sound_categories = {
         "Animals": [
             "dog",

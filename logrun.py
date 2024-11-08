@@ -4,7 +4,7 @@ import meeteval.wer.wer.siso
 import pandas as pd
 from jiwer import cer
 
-from latex import create_latex_table, save_latex_csv
+from latex import create_base_line_latex_tables, create_latex_table, save_latex_csv
 from preprocessing import get_formated_date
 
 
@@ -54,6 +54,7 @@ def log_run(run_details, run_results):
     df.to_csv(filepath, index=False)
     save_latex_csv(df)
     create_latex_table( df, "str" )
+    create_base_line_latex_tables()
 
 
 import subprocess
