@@ -142,4 +142,11 @@ def add_file_name(func):
 @add_file_name
 def filter_p_audio(expanded_df):
     clean_expanded_df = expanded_df.query( "file_name.str.contains(r'P\d{2}')", engine='python' )
+    clean_expanded_df.drop(columns='file_name', inplace=True)
     return clean_expanded_df
+@add_file_name
+def filter_far_audio(expanded_df):
+    clean_expanded_df = expanded_df.query( "not file_name.str.contains(r'P\d{2}')", engine='python' )
+    clean_expanded_df.drop(columns='file_name', inplace=True)
+    return clean_expanded_df
+

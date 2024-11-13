@@ -35,7 +35,7 @@ def create_latex_table(df, columns):
 
 def create_dipco_baseline_latex_table(dipco_df):
     from ast import literal_eval
-    breakpoint()
+
     dipco_df.dropna( subset=['wer_per_mic_type'], inplace=True ) # filter out the old values that are NaN
     dipco_df['wer_per_mic_type'] = dipco_df['wer_per_mic_type'].apply(literal_eval)
     baseline_table = pd.DataFrame( {
@@ -47,8 +47,8 @@ def create_dipco_baseline_latex_table(dipco_df):
     breakpoint()
     table = baseline_table.pivot_table(
         index='evaluation part',
-        values=['model_name','close talk', 'far field'],
-        aggfunc='mean'
+        values=['name of the model','close talk', 'far field'],
+        aggfunc='min'
         ).round( 2 ).to_latex(
         caption='Baseline table ',
         label='tab:baseline',
@@ -57,6 +57,7 @@ def create_dipco_baseline_latex_table(dipco_df):
         header=True
         )
     print(table)
+    breakpoint()
     # split into eval and dev part
 
 
@@ -66,7 +67,7 @@ def create_base_line_latex_tables():
     # baseline has no checkpoints and no training
     #df = df.query( 'Training == "NT"' ) TODO
     # only take runs that were run on the full ata
-    #df = df[df['developer_mode'] == "N"] TODO
+    df = df[df['developer_mode'] == "N"]
     # delete the dates
     df.drop( columns=['developer_mode', 'date', 'results_path', 'notes', 'environment', 'commit_hash'], inplace=True )
     dipco_df = df.query("dataset == 'dipco'")

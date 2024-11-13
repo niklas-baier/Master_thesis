@@ -289,6 +289,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
 
     #train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe,test_dataframe = dipco_split_sessions(dataframe)
+    train_dataframe = set_data_portion_of_training( run_details, train_dataframe )
 
     if run_details.augmentation == 'Y':
         breakpoint()
@@ -304,6 +305,14 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe.sample(n=100,random_state=42),eval_dataframe.sample(n=100, random_state=42), test_dataframe.sample(n=100, random_state=42)
     else:
         return train_dataframe, eval_dataframe,test_dataframe
+
+
+def set_data_portion_of_training(run_details, train_dataframe):
+    if run_details.data_portion == "clean-only":
+        train_dataframe = augmentations.filter_p_audio( train_dataframe )
+    if run_details.data_portion == "far-only":
+        train_dataframe = augmentations.filter_far_audio( train_dataframe )
+    return train_dataframe
 
 
 def add_noise_paths(dataframe):
@@ -516,7 +525,11 @@ def generate_dfs(args, run_details):
 
         expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
         if(run_details.developer_mode == "N"):
-            assert((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
+            if(run_details.data_portion == "all"):
+                assert ((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
+
+
+
         # TODO Verify
 
     eval_df['results'] = eval_df['words']
@@ -534,7 +547,6 @@ def oversample_clean_audio(expanded_df, run_details):
     oversampled_sub_df = pd.concat( [near_person_samples] * (run_details.oversampling - 1), ignore_index=True )
     expanded_df = pd.concat( [expanded_df, oversampled_sub_df], ignore_index=True )
     expanded_df = expanded_df.iloc[np.random.permutation( len( expanded_df ) )]
-    expanded_df.drop(columns=['file_name'], inplace=True)
     return expanded_df
 
 
