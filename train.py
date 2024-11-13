@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor
+from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor, EarlyStoppingCallback
 from tqdm import tqdm
 from transformers.models.whisper.modeling_whisper import *
 from dataclasses import dataclass
@@ -81,14 +81,14 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
 
 def generate_training_args(run_details):
-    train_batch_size = 32
-    per_device_eval_batch_size = 32
+    train_batch_size = 16
+    per_device_eval_batch_size = 16
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
     max_steps = 1000
     loggings_steps = 50
-    save_steps = 50
+    save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.version == "peft":
@@ -134,7 +134,10 @@ def generate_training_args(run_details):
         greater_is_better=False,
         remove_unused_columns=True,
         save_total_limit=4,
-        dataloader_num_workers=8
+        dataloader_num_workers=8,
+        callbacks=[EarlyStoppingCallback( early_stopping_patience=3 )]
+
+
         )
     return training_args
 
