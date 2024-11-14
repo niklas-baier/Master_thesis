@@ -35,6 +35,7 @@ def chime_paths(dataset_path, run_details):
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path
 
 def setup_paths(environment, dataset_name, run_details):
+    # This method sets the base paths of the dipco and Chim6Dataset for different environments ID:126
     dataset_path = "/project/data_asr/dipco/Dipco"
     bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
     if environment == 'cluster':
@@ -117,6 +118,7 @@ def list_json_files(directory):
 
 
 def load_and_concatenate_json_files(directory):
+    #implementation of ID136
     json_files = list_json_files(directory)
     # List to hold individual DataFrames
     data_frames = []
@@ -151,6 +153,7 @@ def time_to_seconds(time_str):
 
 
 def chime_get_seconds_from_time(time_obj):
+    #ID150
     # Extract hours, minutes, and seconds from the Timestamp object
     h = time_obj.hour
     m = time_obj.minute
@@ -166,6 +169,7 @@ def get_corresponding_end_time(dict: dict, key: str):
 
 
 def generate_microphone_paths(row,mode_path):
+    # Implementation of ID141
 
     paths = []
 
@@ -179,6 +183,7 @@ def generate_microphone_paths(row,mode_path):
 
 
 def chime_generate_microphone_paths(row, mode_path):
+    #ID151
     paths = []
     dataset_paths = Paths.get_instance()
     if mode_path == dataset_paths.train_path:
@@ -205,12 +210,15 @@ def chime_generate_microphone_paths(row, mode_path):
     return paths
 
 
-# change the seconds to frames
+
 def get_Frames(starting_second: float, sample_rate: int, end_second: float) -> List[int]:
+    # change the seconds to frames
+    # ID152
     return [int(starting_second * sample_rate), int(end_second * sample_rate)]
 
 
 def validate_frames_column(frames_list):
+    #ID 153
     return len(frames_list) == 2
 
 
@@ -239,6 +247,8 @@ def chime_parsing(dataframe, run_details,mode_path):
 
 
 def drop_chime_columns(dataframe, mode_path, run_details):
+
+    #ID154
     if run_details.task == 'classification':
         dataframe.drop(
             columns=['end_time', 'start_time', 'duration', 'frames', 'start', 'end', 'location', 'ref', 'endframe',
@@ -260,6 +270,7 @@ def drop_chime_columns(dataframe, mode_path, run_details):
 
 
 def dipco_parsing(dataframe, run_details, mode_path):
+    #Implementation of ID139
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
     # Drop the original 'start_time' column
@@ -308,6 +319,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
 
 
 def set_data_portion_of_training(run_details, train_dataframe):
+    # ID144
     if run_details.data_portion == "clean-only":
         train_dataframe = augmentations.filter_p_audio( train_dataframe )
     if run_details.data_portion == "far-only":
@@ -316,6 +328,7 @@ def set_data_portion_of_training(run_details, train_dataframe):
 
 
 def add_noise_paths(dataframe):
+    #ID 146
     dataframe = get_clean_audio_without_music( dataframe )
     noise_paths = augmentations.get_noises()
     dataframe['noise_paths'] = noise_paths['file_path']
@@ -326,6 +339,7 @@ def add_noise_paths(dataframe):
 
 
 def dipco_split_sessions(dataframe):
+    #Implementation of ID 143
     session_ids = dataframe['session_id'].unique()
     eval_session = session_ids[0]
     eval_dataframe = dataframe[dataframe['session_id'] == eval_session]
@@ -374,6 +388,8 @@ def generate_test_features(run_details):
 
 
 def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
+    #ID 161
+    # selects subset if developer mode is selected
     if expanded_df is None:
         return None
     expanded_df.reset_index(drop=True, inplace=True)
@@ -454,6 +470,7 @@ def prepare_noisedataset_seq2seq(batch):
 
 
 def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
+    #ID 163
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
     else:
@@ -467,6 +484,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
+    #ID 164
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
     if run_details.train_state == 'T':
@@ -500,6 +518,7 @@ def extract_special_token(label_string):
 def extract_letters(input_string):
     return ''.join([char for char in input_string if char.isalpha()])
 def generate_dfs(args, run_details):
+    #Implementation of ID135
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
         environment=args.environment, dataset_name=args.dataset_name, run_details=run_details)
     Paths.initialize(args.environment, args.dataset_name, run_details=run_details)
@@ -540,6 +559,7 @@ def generate_dfs(args, run_details):
 
 
 def oversample_clean_audio(expanded_df, run_details):
+    #ID149
     import numpy as np
     from augmentations import filter_p_audio
     np.random.seed( 42 )
@@ -576,12 +596,15 @@ class Paths:
         return cls._instance
 
 def generate_transcription_csv_path(run_details):
+    # ID 167
     model_size = get_model_size(run_details.model_id)
     transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
     return transcription_csv_path
 
 
 def get_clean_audio_without_music(df):
+    #This is the implementation for ID: 60
+
     # music noise starts playing at dipco at different timestamps more details in README of DIPCO dataset
     music_start = {"S01": "00:38:52", "S02": "00:19:30", "S03": "00:33:45","S04": "00:23:25", "S05": "00:31:15", "S06": "00:06:17","S07": "00:10:05", "S08": "00:01:02", "S09": "00:12:18","S10": "00:07:10"}
     music_start_seconds = {key: time_to_seconds(value) for key,value in music_start.items()}
@@ -592,6 +615,7 @@ def get_clean_audio_without_music(df):
     return no_background_music_samples
 
 def remove_duplicates(df):
+    #Implementation of ID:142
     # Drop duplicates based on the combination of 'filepath', 'words', and 'startframe'
     unique_df = df.drop_duplicates( subset=['file_path', 'words', 'startframe'] )
 

@@ -65,6 +65,7 @@ def compute_chime_metrics(pred):
         return {"wer": wer}
 
 def transcribe_results(*, test_dataset, trainer, run_details):
+    #ID 172
     if run_details.version == 'peft':
         peft_config = PeftConfig.from_pretrained( run_details.model_id )
         model = WhisperForConditionalGeneration.from_pretrained(
@@ -74,6 +75,11 @@ def transcribe_results(*, test_dataset, trainer, run_details):
         model.config.use_cache = True
     trainer.compute_metrics = compute_chime_metrics
     trainer.evaluate( eval_dataset=test_dataset )
+    return save_evaluation_results_as_csv( run_details )
+
+
+def save_evaluation_results_as_csv(run_details):
+    #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
     file_path = os.path.join( results_directory, "results.json" )
     results = pd.read_json( file_path )
@@ -110,6 +116,7 @@ class SavePeftModelCallback( TrainerCallback ):
         return control
 
 def get_trainer(run_details, training_args, data_collator,train_dataset, eval_dataset):
+    #ID 170
     if run_details.version == "peft":
         trainer = Seq2SeqTrainer(
             args=training_args,
@@ -150,6 +157,7 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
                          developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion)
 
 assert run_details_valid(run_details)
+breakpoint()
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)

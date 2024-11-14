@@ -10,6 +10,7 @@ from audioprocessing import get_spectrogram
 
 
 def get_noises():
+    #ID147
     csv_df = pd.read_csv( 'syntheticdata/ESC-50/meta/esc50.csv' )
     print( csv_df.head() )
     grouped_by_name = csv_df.groupby( 'category' )
@@ -21,6 +22,7 @@ def get_noises():
     filtered_df = csv_df[csv_df['category'].isin(taxonomy_dict['Interior/domestic sounds'] )]
     return filtered_df
 def get_path_noise(filename):
+    #Id148
     cwd = os.getcwd()
     file_path = f'{cwd}/syntheticdata/ESC-50/audio/{filename}'
     return file_path
