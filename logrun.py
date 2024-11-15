@@ -9,6 +9,7 @@ from preprocessing import get_formated_date
 
 
 def log_run(run_details, run_results, training_time=0):
+    #implementation of ID: 63
     results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
     #TODO

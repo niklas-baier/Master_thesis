@@ -44,6 +44,7 @@ class RunDetails:
 from typing import Dict
 @dataclass
 class RunResults:
+    # class that contains the runresults ID:133
     wer_per_session: Dict[str, float]
     wer_per_mictype: Dict[str, float]
     wer_per_special_token: Dict[str, float]
@@ -81,6 +82,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
 
 def generate_training_args(run_details):
+    #ID 169
     train_batch_size = 16
     per_device_eval_batch_size = 16
     if (run_details.environment == "bwcluster"):
@@ -135,7 +137,6 @@ def generate_training_args(run_details):
         remove_unused_columns=True,
         save_total_limit=4,
         dataloader_num_workers=8,
-        callbacks=[EarlyStoppingCallback( early_stopping_patience=3 )]
 
 
         )
@@ -180,6 +181,7 @@ def freeze_all_layers_but_last(model):
 
 
 def get_parser():
+    # Implementation of ID:134
     import argparse
     parser = argparse.ArgumentParser( description="RunDetails argument parser" )
 
@@ -262,10 +264,14 @@ def transcribe_raw(eval_df, model, processor, run_details, torch_dtype):
 
 from functools import *
 # partials to ensure that the right arguments are always provided ( same as a getter)
+#ID157
 get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", task="transcribe")
+#ID159
 get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe" )
+#ID158
 get_plain_model = partial(WhisperForConditionalGeneration.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True)
 def create_tokenizer_model_processor(run_details, torch_dtype):
+    #ID156
 
     if (run_details.checkpoint_path != ""):
         path_of_model = run_details.checkpoint_path
@@ -308,6 +314,7 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
 
 
 def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df):
+    #ID 160
     from preprocessing import generate_test_features
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets
     train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(

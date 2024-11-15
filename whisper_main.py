@@ -1,9 +1,11 @@
 import evaluate
 import json
+import polars as pl
 import time
 from peft import PeftModel, PeftConfig
 import jiwer
 import evaluation
+from test_Whisper import check_no_missing_values
 import preprocessing
 import pandas as pd
 from logrun import log_run
@@ -65,6 +67,7 @@ def compute_chime_metrics(pred):
         return {"wer": wer}
 
 def transcribe_results(*, test_dataset, trainer, run_details):
+    #ID 172
     if run_details.version == 'peft':
         peft_config = PeftConfig.from_pretrained( run_details.model_id )
         model = WhisperForConditionalGeneration.from_pretrained(
@@ -73,14 +76,39 @@ def transcribe_results(*, test_dataset, trainer, run_details):
         model = PeftModel.from_pretrained( model, run_details.model_id )
         model.config.use_cache = True
     trainer.compute_metrics = compute_chime_metrics
-    trainer.evaluate( eval_dataset=test_dataset )
+    #results = trainer.evaluate( eval_dataset=test_dataset )
+    predictions = predict( trainer=trainer, test_dataset=test_dataset )
+    
+    return save_evaluation_results_as_csv( run_details, results=predictions )
+
+def predict(trainer,test_dataset):
+    result2 = trainer.predict(test_dataset)
+    predictions = result2.predictions
+    labels = result2.label_ids
+    decode = lambda data: [tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True) for item in data]
+    decoded_sentences = decode(predictions)
+    decoded_labels = decode(labels)
+    df = create_polars_df(decoded_sentences,decoded_labels)
+    return df
+
+
+
+def create_polars_df(decoded_sentences,decoded_labels):
+    df = pl.DataFrame({'predictions': decoded_sentences, 'labels': decoded_labels})
+    return df
+    
+
+
+
+def save_evaluation_results_as_csv(run_details, results):
+    #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
-    file_path = os.path.join( results_directory, "results.json" )
-    results = pd.read_json( file_path )
     test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
     assert results.shape[0] == test_df.shape[0]
     test_df['labels_trained'] = results['labels']
     test_df['temp'] = results['predictions']
+    check_no_missing_values( test_df, results )
+
     test_df['results'] = test_df.apply(
         lambda row: add_prediction_column( row['words'], row['labels_trained'], row['temp'] ), axis=1 )
     test_df.drop( columns=['labels_trained'] )
@@ -110,6 +138,7 @@ class SavePeftModelCallback( TrainerCallback ):
         return control
 
 def get_trainer(run_details, training_args, data_collator,train_dataset, eval_dataset):
+    #ID 170
     if run_details.version == "peft":
         trainer = Seq2SeqTrainer(
             args=training_args,

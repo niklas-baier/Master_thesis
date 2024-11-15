@@ -208,6 +208,8 @@ plotly==5.24.1
 plotly-resampler==0.10.0
 pluggy==1.5.0
 pmdarima==2.0.4
+polarify==0.2.0
+polars==0.20.31
 pooch==1.8.2
 prometheus_client==0.20.0
 prompt_toolkit==3.0.47

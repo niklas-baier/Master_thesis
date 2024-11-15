@@ -20,6 +20,7 @@ from train import RunResults, transcribe_audio
 
 
 def plot_loss(trainer, run_details):
+    #
     from preprocessing import get_formated_date
     df_log = pd.DataFrame( trainer.state.log_history )
     # visualization of the loss during training
@@ -64,6 +65,7 @@ def plot_WER(trainer, run_details):
 
 
 def visualize_wer(grouped, model_type):
+    # Implementation of ID:132
     names = []
     wers = []
     for name, group in grouped:
@@ -107,14 +109,17 @@ def extract_info(file_path, pattern, group_idx):
 
 
 def extract_session(file_path):
+    #Implementation of ID: 129
     return extract_info( file_path, r'/S(\d+)', 1 )
 
 
 def extract_person(file_path):
+    # Implementation of ID: 130
     return extract_info( file_path, r'/S(\d+)_([PU])(\d+)', 2 )
 
 
 def extract_location(file_path):
+    # Implementation of ID: 131
     return extract_info( file_path, r'/S(\d+)_([PU])(\d+)', 3 )
 
 
@@ -148,6 +153,7 @@ def plot_histograms(data, run_details):
 
 
 def visualize_results(transcription_csv_path, run_details):
+    # implementation of ID: 127
     from evaluation import chime_normalisation
     data = pd.read_csv( transcription_csv_path )
     # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
