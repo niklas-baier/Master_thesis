@@ -1,9 +1,11 @@
 import evaluate
 import json
+import polars as pl
 import time
 from peft import PeftModel, PeftConfig
 import jiwer
 import evaluation
+from test_Whisper import check_no_missing_values
 import preprocessing
 import pandas as pd
 from logrun import log_run
@@ -74,19 +76,39 @@ def transcribe_results(*, test_dataset, trainer, run_details):
         model = PeftModel.from_pretrained( model, run_details.model_id )
         model.config.use_cache = True
     trainer.compute_metrics = compute_chime_metrics
-    trainer.evaluate( eval_dataset=test_dataset )
-    return save_evaluation_results_as_csv( run_details )
+    #results = trainer.evaluate( eval_dataset=test_dataset )
+    predictions = predict( trainer=trainer, test_dataset=test_dataset )
+    
+    return save_evaluation_results_as_csv( run_details, results=predictions )
+
+def predict(trainer,test_dataset):
+    result2 = trainer.predict(test_dataset)
+    predictions = result2.predictions
+    labels = result2.label_ids
+    decode = lambda data: [tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True) for item in data]
+    decoded_sentences = decode(predictions)
+    decoded_labels = decode(labels)
+    df = create_polars_df(decoded_sentences,decoded_labels)
+    return df
 
 
-def save_evaluation_results_as_csv(run_details):
+
+def create_polars_df(decoded_sentences,decoded_labels):
+    df = pl.DataFrame({'predictions': decoded_sentences, 'labels': decoded_labels})
+    return df
+    
+
+
+
+def save_evaluation_results_as_csv(run_details, results):
     #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
-    file_path = os.path.join( results_directory, "results.json" )
-    results = pd.read_json( file_path )
     test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
     assert results.shape[0] == test_df.shape[0]
     test_df['labels_trained'] = results['labels']
     test_df['temp'] = results['predictions']
+    check_no_missing_values( test_df, results )
+
     test_df['results'] = test_df.apply(
         lambda row: add_prediction_column( row['words'], row['labels_trained'], row['temp'] ), axis=1 )
     test_df.drop( columns=['labels_trained'] )
@@ -157,7 +179,6 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
                          developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion)
 
 assert run_details_valid(run_details)
-breakpoint()
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
