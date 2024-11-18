@@ -105,6 +105,7 @@ def save_evaluation_results_as_csv(run_details, results):
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
     test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
     assert results.shape[0] == test_df.shape[0]
+    breakpoint()
     test_df['labels_trained'] = results['labels']
     test_df['temp'] = results['predictions']
     check_no_missing_values( test_df, results )
@@ -160,7 +161,7 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             data_collator=data_collator,
             compute_metrics=compute_chime_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=1)]
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
             )
     return trainer
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -181,6 +182,8 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+breakpoint()
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
