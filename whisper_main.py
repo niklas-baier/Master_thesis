@@ -68,13 +68,7 @@ def compute_chime_metrics(pred):
 
 def transcribe_results(*, test_dataset, trainer, run_details):
     #ID 172
-    if run_details.version == 'peft':
-        peft_config = PeftConfig.from_pretrained( run_details.model_id )
-        model = WhisperForConditionalGeneration.from_pretrained(
-            peft_config.base_model_name_or_path, load_in_8bit=True, device_map="auto"
-            )
-        model = PeftModel.from_pretrained( model, run_details.model_id )
-        model.config.use_cache = True
+   
     trainer.compute_metrics = compute_chime_metrics
     #results = trainer.evaluate( eval_dataset=test_dataset )
     predictions = predict( trainer=trainer, test_dataset=test_dataset )
@@ -146,11 +140,11 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            compute_metrics=compute_chime_metrics,
+            compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[SavePeftModelCallback],
+         
             )
-        model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
+        # silence the warnings. Please re-enable for inference!
     else:
         trainer = Seq2SeqTrainer(
             args=training_args,
@@ -158,7 +152,7 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            compute_metrics=compute_chime_metrics,
+            compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=1)]
             )
@@ -181,6 +175,7 @@ run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id,
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
@@ -209,7 +204,7 @@ else:
     trainer.train()
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    peft_model_id = 'waterman3000/peft'
+  
     #model.push_to_hub(peft_model_id)
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )

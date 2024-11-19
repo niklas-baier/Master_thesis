@@ -88,26 +88,28 @@ def generate_training_args(run_details):
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 1000
+    max_steps = 100
     loggings_steps = 50
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.version == "peft":
         training_args = Seq2SeqTrainingArguments(
-            output_dir="reach-vb/test",  # change to a repo name of your choice
-            per_device_train_batch_size=8,
-            gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+            output_dir=output_dir,
+              # change to a repo name of your choice
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=16,  # increase by 2x for every 2x decrease in batch size
             learning_rate=1e-3,
-            warmup_steps=50,
+            warmup_steps=10,
             num_train_epochs=1,
             evaluation_strategy="steps",
+            dataloader_pin_memory=True,     # Pin memory
             fp16=True,
-            per_device_eval_batch_size=8,
+            per_device_eval_batch_size=1,
             generation_max_length=128,
             logging_steps=100,
             max_steps=100,  # only for testing purposes, remove this from your final run :)
-            remove_unused_columns=False,
+            remove_unused_columns=True,
             # required as the PeftModel forward doesn't have the signature of the wrapped model's forward
             label_names=["labels"],  # same reason as above
             )
@@ -307,7 +309,9 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
         model.resize_token_embeddings( len( tokenizer ) )
 
     if run_details.version == 'peft':
-        model = create_peft(run_details)
+        #model = create_peft(run_details)
+        from peftModification import alterative_peft
+        model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
     return tokenizer, model, processor
