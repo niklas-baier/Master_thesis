@@ -1,9 +1,12 @@
 import evaluate
+import numpy as np 
 import json
 import polars as pl
 import time
+from concurrent.futures import ThreadPoolExecutor
 from peft import PeftModel, PeftConfig
 import jiwer
+import numba 
 import evaluation
 from test_Whisper import check_no_missing_values
 import preprocessing
@@ -16,7 +19,8 @@ from train import RunDetails, add_prediction_column, generate_training_args, Dat
 import os
 import torch
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
-    TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback
+    TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
+from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 def compute_metrics(pred):
     pred_ids = pred.predictions
@@ -26,12 +30,28 @@ def compute_metrics(pred):
     label_ids[label_ids == -100] = tokenizer.pad_token_id
 
     # we do not want to group tokens when computing the metrics
-    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
-    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+    if len(pred_ids) == 2:
+        first_value = pred_ids[0]
+        pred_ids = np.argmax(first_value, axis=-1)  # Shape: (598, 81) Assuming those are logits
 
+    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True) # this approach is faster than a parallelized threadpoolexecutor approach
     wer = 100 * metric.compute(predictions=pred_str, references=label_str)
 
     return {"wer": wer}
+
+
+def batch_decode_parallel(tokenizer, pred_ids, label_ids, skip_special_tokens=True):
+    # Define a function to decode a batch
+    def decode(ids):
+        return tokenizer.batch_decode(ids, skip_special_tokens=skip_special_tokens)
+    
+    # Run decoding in parallel for predictions and labels
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        pred_str, label_str = executor.map(decode, [pred_ids, label_ids])
+    
+    return list(pred_str), list(label_str)
+
 def compute_chime_metrics(pred):
     pred_ids = pred.predictions
     label_ids = pred.label_ids
@@ -40,6 +60,10 @@ def compute_chime_metrics(pred):
     label_ids[label_ids == -100] = tokenizer.pad_token_id
 
     # we do not want to group tokens when computing the metrics
+    breakpoint()
+    if len(pred_ids) == 2:
+        first_value = pred_ids[0]
+        pred_ids = np.argmax(first_value, axis=-1)  # Shape: (598, 81) Assuming those are logits
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
     results = {"predictions": pred_str, "labels": label_str}
@@ -68,16 +92,13 @@ def compute_chime_metrics(pred):
 
 def transcribe_results(*, test_dataset, trainer, run_details):
     #ID 172
-    if run_details.version == 'peft':
-        peft_config = PeftConfig.from_pretrained( run_details.model_id )
-        model = WhisperForConditionalGeneration.from_pretrained(
-            peft_config.base_model_name_or_path, load_in_8bit=True, device_map="auto"
-            )
-        model = PeftModel.from_pretrained( model, run_details.model_id )
-        model.config.use_cache = True
-    trainer.compute_metrics = compute_chime_metrics
+   
     #results = trainer.evaluate( eval_dataset=test_dataset )
-    predictions = predict( trainer=trainer, test_dataset=test_dataset )
+    if run_details.version == "peft":
+       breakpoint() 
+
+    else:
+        predictions = predict( trainer=trainer, test_dataset=test_dataset )
     
     return save_evaluation_results_as_csv( run_details, results=predictions )
 
@@ -147,11 +168,11 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            compute_metrics=compute_chime_metrics,
+            compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[SavePeftModelCallback],
+         
             )
-        model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
+        # silence the warnings. Please re-enable for inference!
     else:
         trainer = Seq2SeqTrainer(
             args=training_args,
@@ -159,7 +180,7 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            compute_metrics=compute_chime_metrics,
+            compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
             )
@@ -183,7 +204,6 @@ assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
-breakpoint()
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
@@ -212,7 +232,7 @@ else:
     trainer.train()
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    peft_model_id = 'waterman3000/peft'
+  
     #model.push_to_hub(peft_model_id)
     transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                          run_details=run_details )

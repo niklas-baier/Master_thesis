@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import final, Final
 import pandas as pd
-from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor, EarlyStoppingCallback
+from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor, EarlyStoppingCallback, AutoModelForSpeechSeq2Seq
 from tqdm import tqdm
 from transformers.models.whisper.modeling_whisper import *
 from dataclasses import dataclass
@@ -88,28 +88,36 @@ def generate_training_args(run_details):
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 1000
+    max_steps = 100
     loggings_steps = 50
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
     if run_details.version == "peft":
         training_args = Seq2SeqTrainingArguments(
-            output_dir="reach-vb/test",  # change to a repo name of your choice
+            output_dir=output_dir,
+              # change to a repo name of your choice
             per_device_train_batch_size=8,
-            gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
+            gradient_accumulation_steps=2,  # increase by 2x for every 2x decrease in batch size
             learning_rate=1e-3,
-            warmup_steps=50,
+            warmup_steps=10,
             num_train_epochs=1,
             evaluation_strategy="steps",
             fp16=True,
-            per_device_eval_batch_size=8,
+            per_device_eval_batch_size=16,
+            eval_steps = 50,
             generation_max_length=128,
-            logging_steps=100,
-            max_steps=100,  # only for testing purposes, remove this from your final run :)
-            remove_unused_columns=False,
+            logging_steps=50,
+            max_steps=500,  # only for testing purposes, remove this from your final run :)
+            remove_unused_columns=True,
+            eval_accumulation_steps = 4,
             # required as the PeftModel forward doesn't have the signature of the wrapped model's forward
-            label_names=["labels"],  # same reason as above
+            label_names=["labels"],  # same reason as abovei
+            dataloader_num_workers=4,
+            torch_empty_cache_steps=8,
+            save_total_limit = 2,
+            
+
             )
         return training_args
     training_args = Seq2SeqTrainingArguments(
@@ -124,11 +132,12 @@ def generate_training_args(run_details):
         eval_strategy="steps",
         per_device_eval_batch_size=per_device_eval_batch_size,
         predict_with_generate=True,
-        generation_max_length=225,
+        generation_max_length=200,
         save_steps=save_steps,
         eval_steps=50,
         fp16=True,
         logging_steps=loggings_steps,
+        eval_accumulation_steps = 4,
         report_to='wandb',
         run_name=run_name,
         load_best_model_at_end=True,
@@ -137,6 +146,7 @@ def generate_training_args(run_details):
         remove_unused_columns=True,
         save_total_limit=4,
         dataloader_num_workers=8,
+        dataloader_pin_memory= True
 
 
         )
@@ -265,11 +275,11 @@ def transcribe_raw(eval_df, model, processor, run_details, torch_dtype):
 from functools import *
 # partials to ensure that the right arguments are always provided ( same as a getter)
 #ID157
-get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", task="transcribe")
+get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", task="transcribe", use_fast=True)
 #ID159
-get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe" )
+get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe",use_fast=True )
 #ID158
-get_plain_model = partial(WhisperForConditionalGeneration.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True)
+get_plain_model = partial(AutoModelForSpeechSeq2Seq.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True, attn_implementation="sdpa")
 def create_tokenizer_model_processor(run_details, torch_dtype):
     #ID156
 
@@ -307,7 +317,9 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
         model.resize_token_embeddings( len( tokenizer ) )
 
     if run_details.version == 'peft':
-        model = create_peft(run_details)
+        #model = create_peft(run_details)
+        from peftModification import alterative_peft
+        model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
     return tokenizer, model, processor
