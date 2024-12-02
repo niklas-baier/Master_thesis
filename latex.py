@@ -44,7 +44,6 @@ def create_dipco_baseline_latex_table(dipco_df):
         'close talk': dipco_df['wer_per_mic_type'].apply(lambda x: x['P']),
         'far field': dipco_df['wer_per_mic_type'].apply(lambda x: x['U']),
         } )
-    breakpoint()
     table = baseline_table.pivot_table(
         index='evaluation part',
         values=['name of the model','close talk', 'far field'],

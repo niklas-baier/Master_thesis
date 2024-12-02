@@ -3,6 +3,7 @@ import numpy as np
 import json
 import polars as pl
 import time
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from peft import PeftModel, PeftConfig
 import jiwer
@@ -95,12 +96,34 @@ def transcribe_results(*, test_dataset, trainer, run_details):
    
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
-       breakpoint() 
+       total_size = len(test_dataset)
+       part_size = total_size // 20
+       #create 20 slices
+       lazy_parts = [test_dataset.select(range(i * part_size, (i + 1) * part_size))for i in range(20)]
+       if total_size % 20 != 0:
+           lazy_parts[-1] = test_dataset.select(range(19 * part_size, total_size))
+       predictions = [predict_logits_and_get_strings_from_them(trainer,x) for x in lazy_parts]
+       predictions = pl.concat(predictions, how='vertical')
+       print("hi")
+
+       
 
     else:
         predictions = predict( trainer=trainer, test_dataset=test_dataset )
     
-    return save_evaluation_results_as_csv( run_details, results=predictions )
+    path = save_evaluation_results_as_csv( run_details, results=predictions )
+    return path
+
+def predict_logits_and_get_strings_from_them(trainer, dataset_slice):
+    predict = trainer.predict(dataset_slice)
+    predictions = predict.predictions[0]
+    logits = np.argmax(predictions, axis=-1)
+    result = tokenizer.batch_decode(logits, skip_special_tokens=True)
+    map_to_strings = partial(tokenizer.batch_decode, skip_special_tokens=True)
+    result_predictions = map_to_strings(logits)
+    result_labels = map_to_strings(predict.label_ids)
+    df = pl.DataFrame({'predictions':result_predictions, 'labels': result_labels})
+    return df
 
 def predict(trainer,test_dataset):
     result2 = trainer.predict(test_dataset)
@@ -182,7 +205,7 @@ def get_trainer(run_details, training_args, data_collator,train_dataset, eval_da
             data_collator=data_collator,
             compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
     return trainer
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -204,6 +227,7 @@ assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
