@@ -1,22 +1,23 @@
+from __future__ import annotations
 import os
 import glob
 from datetime import datetime
 import re
 import pandas as pd
 from transformers import WhisperFeatureExtractor
-
 import augmentations
-from train import get_model_size
-
+from datasets import Dataset
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
-from typing import List
+from typing import List, Any, Callable 
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
 import numpy as np
-def dipco_paths(dataset_path):
+from typing import Any
+from argparse import Namespace
+def dipco_paths(dataset_path:str)-> tuple[str, str, str, str, str]:
 
     dev_path = os.path.join(dataset_path, 'audio/dev')
     eval_path = os.path.join(dataset_path, 'audio/eval')
@@ -24,7 +25,7 @@ def dipco_paths(dataset_path):
     transcript_eval_path = os.path.join(dataset_path, 'transcriptions/eval')
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path
 
-def chime_paths(dataset_path, run_details):
+def chime_paths(dataset_path:str, run_details:"RunDetails")-> tuple[str, str, str, str, str]:
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(dataset_path)
 
     train_path = os.path.join(dataset_path, 'audio/train')
@@ -34,7 +35,7 @@ def chime_paths(dataset_path, run_details):
         transcript_dev_path, transcript_eval_path = transcript_eval_path, transcript_dev_path
     return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path
 
-def setup_paths(environment, dataset_name, run_details):
+def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str, str, str, str, str | None, str | None]:
     # This method sets the base paths of the dipco and Chim6Dataset for different environments ID:126
     dataset_path = "/project/data_asr/dipco/Dipco"
     bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
@@ -81,7 +82,7 @@ def setup_paths(environment, dataset_name, run_details):
                 transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path
             return dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path ,'',''
 
-def generate_dataset_paths(run_details):
+def generate_dataset_paths(run_details:"RunDetails")-> tuple[str, str, str]:
     model_str = extract_letters(run_details.model_id)
     train_dataset_path = f"{model_str}_{run_details.dataset_name}_train.hf"  # TODO
     eval_dataset_path = f"{model_str}_{run_details.dataset_name}_eval.hf"
@@ -107,7 +108,7 @@ def extract_prefix(file_path: str) -> str:
         raise ValueError
 
 
-def list_json_files(directory):
+def list_json_files(directory:str)-> list[str]:
     # Construct the file path pattern
     pattern = os.path.join(directory, '*.json')
 
@@ -117,7 +118,7 @@ def list_json_files(directory):
     return json_files
 
 
-def load_and_concatenate_json_files(directory):
+def load_and_concatenate_json_files(directory:str)-> pd.DataFrame:
     #implementation of ID136
     json_files = list_json_files(directory)
     # List to hold individual DataFrames
@@ -134,7 +135,7 @@ def load_and_concatenate_json_files(directory):
     return combined_df
 
 
-def expand_start_time(row):
+def expand_start_time(row: pd.Series) -> pd.DataFrame:
     start_time_dict = row['start_time']
     rows = []
     for key, time_str in start_time_dict.items():
@@ -146,7 +147,7 @@ def expand_start_time(row):
 
 
 # @time_to_seconds: Function to convert time string to seconds
-def time_to_seconds(time_str):
+def time_to_seconds(time_str:str)-> float:
     h, m, s = map(float, time_str.split(':'))
 
     return h * 3600 + m * 60 + s
@@ -163,12 +164,12 @@ def chime_get_seconds_from_time(time_obj):
     return h * 3600 + m * 60 + s + ms / 1000
 
 
-def get_corresponding_end_time(dict: dict, key: str):
+def get_corresponding_end_time(dict: dict, key: str)-> float:
     end_time = [v for k, v in dict if k == key]
     return end_time
 
 
-def generate_microphone_paths(row,mode_path):
+def generate_microphone_paths(row:pd.Series,mode_path:str)-> List[str]:
     # Implementation of ID141
 
     paths = []
@@ -182,7 +183,7 @@ def generate_microphone_paths(row,mode_path):
     return paths
 
 
-def chime_generate_microphone_paths(row, mode_path):
+def chime_generate_microphone_paths(row:pd.Series, mode_path:str) -> List[str]:
     #ID151
     paths = []
     dataset_paths = Paths.get_instance()
@@ -222,7 +223,7 @@ def validate_frames_column(frames_list):
     return len(frames_list) == 2
 
 
-def chime_parsing(dataframe, run_details,mode_path):
+def chime_parsing(dataframe:pd.DataFrame, run_details,mode_path:str)-> pd.DataFrame:
     dataframe['start'] = dataframe['start_time'].apply(chime_get_seconds_from_time)
     dataframe['end'] = dataframe['end_time'].apply(chime_get_seconds_from_time)
     dataframe['file_path'] = dataframe.apply(chime_generate_microphone_paths, axis=1,args=(mode_path,))
@@ -246,7 +247,7 @@ def chime_parsing(dataframe, run_details,mode_path):
         return dataframe
 
 
-def drop_chime_columns(dataframe, mode_path, run_details):
+def drop_chime_columns(dataframe:pd.DataFrame, mode_path:str, run_details)-> pd.DataFrame:
 
     #ID154
     if run_details.task == 'classification':
@@ -269,7 +270,7 @@ def drop_chime_columns(dataframe, mode_path, run_details):
     return dataframe
 
 
-def dipco_parsing(dataframe, run_details, mode_path):
+def dipco_parsing(dataframe:pd.DataFrame, run_details, mode_path:str)-> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     #Implementation of ID139
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
@@ -318,7 +319,7 @@ def dipco_parsing(dataframe, run_details, mode_path):
         return train_dataframe, eval_dataframe,test_dataframe
 
 
-def set_data_portion_of_training(run_details, train_dataframe):
+def set_data_portion_of_training(run_details, train_dataframe:pd.DataFrame)-> pd.DataFrame:
     # ID144
     if run_details.data_portion == "clean-only":
         train_dataframe = augmentations.filter_p_audio( train_dataframe )
@@ -327,7 +328,7 @@ def set_data_portion_of_training(run_details, train_dataframe):
     return train_dataframe
 
 
-def add_noise_paths(dataframe):
+def add_noise_paths(dataframe:pd.DataFrame)-> pd.DataFrame:
     #ID 146
     dataframe = get_clean_audio_without_music( dataframe )
     noise_paths = augmentations.get_noises()
@@ -338,14 +339,15 @@ def add_noise_paths(dataframe):
     return dataframe
 
 
-def dipco_split_sessions(dataframe):
+def dipco_split_sessions(dataframe:pd.DataFrame)->tuple[pd.DataFrame, pd.DataFrame]:
     #Implementation of ID 143
     session_ids = dataframe['session_id'].unique()
     eval_session = session_ids[0]
     eval_dataframe = dataframe[dataframe['session_id'] == eval_session]
     train_dataframe = dataframe[dataframe['session_id'] != eval_session]
     return train_dataframe, eval_dataframe
-def drop_columns_dipco(dataframe, run_details):
+
+def drop_columns_dipco(dataframe:pd.DataFrame, run_details)-> pd.DataFrame:
     if run_details.task =='classification':
         dataframe.drop(
             columns=['endframe', 'session_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
@@ -359,7 +361,7 @@ def drop_columns_dipco(dataframe, run_details):
     return dataframe
 
 
-def _build_basic_features(run_details):
+def _build_basic_features(run_details) -> dict:
     basic_features = {
         'file_path': Value( 'string' ),
         'startframe': Value( 'int64' ),
@@ -376,18 +378,18 @@ def _build_basic_features(run_details):
     return basic_features
 
 
-def generate_features(run_details):
+def generate_features(run_details) -> Features:
     basic_features = _build_basic_features( run_details )
     return Features( basic_features )
 
 
-def generate_test_features(run_details):
+def generate_test_features(run_details) -> Features:
     basic_features = _build_basic_features( run_details )
     basic_features['results'] = Value( 'string' )
     return Features( basic_features )
 
 
-def Hug_dataset_creation(expanded_df, developer_mode,features,test_dataset):
+def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:Features,test_dataset:bool)-> Dataset:
     #ID 161
     # selects subset if developer mode is selected
     if expanded_df is None:
@@ -483,7 +485,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 
-def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function):
+def map_and_store_datasets(run_details:Any, train_dataset:Dataset, eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:dict, mapping_function:Callable[[Any], Dataset]) ->None:
     #ID 164
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
@@ -501,13 +503,13 @@ def map_and_store_datasets(run_details, train_dataset, eval_dataset, test_datase
     return
 
 
-def mapped_dataset_exists(dataset_path):
+def mapped_dataset_exists(dataset_path:str)-> bool:
     if os.path.exists(dataset_path) and os.path.isdir(dataset_path):
         return True
     return False
 
 
-def extract_special_token(label_string):
+def extract_special_token(label_string:str)->str:
     import re
     match = re.search(r'\[\w+\]', label_string)
     if match:
@@ -515,9 +517,9 @@ def extract_special_token(label_string):
     else:
         return "No token"
 
-def extract_letters(input_string):
+def extract_letters(input_string:str)->str:
     return ''.join([char for char in input_string if char.isalpha()])
-def generate_dfs(args, run_details):
+def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     #Implementation of ID135
     dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path, train_path, transcript_train_path = setup_paths(
         environment=args.environment, dataset_name=args.dataset_name, run_details=run_details)
@@ -558,7 +560,7 @@ def generate_dfs(args, run_details):
     return expanded_df, dev_df, eval_df
 
 
-def oversample_clean_audio(expanded_df, run_details):
+def oversample_clean_audio(expanded_df:pd.DataFrame, run_details:Any)-> pd.DataFrame:
     #ID149
     import numpy as np
     from augmentations import filter_p_audio
@@ -595,14 +597,15 @@ class Paths:
             raise Exception("Paths have not been initialized.")
         return cls._instance
 
-def generate_transcription_csv_path(run_details):
+def generate_transcription_csv_path(run_details:Any)-> str:
     # ID 167
+    from train import get_model_size
     model_size = get_model_size(run_details.model_id)
     transcription_csv_path = f'{run_details.dataset_name}_eval_{model_size}_{run_details.train_state}.csv'
     return transcription_csv_path
 
 
-def get_clean_audio_without_music(df):
+def get_clean_audio_without_music(df:pd.DataFrame)-> pd.DataFrame:
     #This is the implementation for ID: 60
 
     # music noise starts playing at dipco at different timestamps more details in README of DIPCO dataset
@@ -614,7 +617,7 @@ def get_clean_audio_without_music(df):
     no_background_music_samples.drop(columns=['music_start'], inplace=True)
     return no_background_music_samples
 
-def remove_duplicates(df):
+def remove_duplicates(df:pd.DataFrame)-> pd.DataFrame:
     #Implementation of ID:142
     # Drop duplicates based on the combination of 'filepath', 'words', and 'startframe'
     unique_df = df.drop_duplicates( subset=['file_path', 'words', 'startframe'] )

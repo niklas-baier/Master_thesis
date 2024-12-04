@@ -11,6 +11,7 @@ import numba
 import evaluation
 from test_Whisper import check_no_missing_values
 import preprocessing
+from datasets import Dataset
 import pandas as pd
 from logrun import log_run
 from test_Whisper import run_details_valid
@@ -22,8 +23,9 @@ import torch
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from torch.utils.data import DataLoader, Subset 
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
-def compute_metrics(pred):
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
+def compute_metrics(pred:EvalPrediction)->dict:
+    breakpoint()
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 
@@ -53,7 +55,7 @@ def batch_decode_parallel(tokenizer, pred_ids, label_ids, skip_special_tokens=Tr
     
     return list(pred_str), list(label_str)
 
-def compute_chime_metrics(pred):
+def compute_chime_metrics(pred:EvalPrediction)->dict:
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 
@@ -91,7 +93,7 @@ def compute_chime_metrics(pred):
 
         return {"wer": wer}
 
-def transcribe_results(*, test_dataset, trainer, run_details):
+def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) -> str:
     #ID 172
    
     #results = trainer.evaluate( eval_dataset=test_dataset )
@@ -114,7 +116,7 @@ def transcribe_results(*, test_dataset, trainer, run_details):
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
 
-def predict_logits_and_get_strings_from_them(trainer, dataset_slice):
+def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_slice:Dataset) -> pl.DataFrame:
     predict = trainer.predict(dataset_slice)
     predictions = predict.predictions[0]
     logits = np.argmax(predictions, axis=-1)
@@ -125,7 +127,7 @@ def predict_logits_and_get_strings_from_them(trainer, dataset_slice):
     df = pl.DataFrame({'predictions':result_predictions, 'labels': result_labels})
     return df
 
-def predict(trainer,test_dataset):
+def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
     result2 = trainer.predict(test_dataset)
     predictions = result2.predictions
     labels = result2.label_ids
@@ -137,19 +139,18 @@ def predict(trainer,test_dataset):
 
 
 
-def create_polars_df(decoded_sentences,decoded_labels):
+def create_polars_df(decoded_sentences:list,decoded_labels:list)->pl.DataFrame:
     df = pl.DataFrame({'predictions': decoded_sentences, 'labels': decoded_labels})
     return df
     
 
 
 
-def save_evaluation_results_as_csv(run_details, results):
+def save_evaluation_results_as_csv(run_details:RunDetails, results:pl.DataFrame) -> str:
     #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
     test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
     assert results.shape[0] == test_df.shape[0]
-    breakpoint()
     test_df['labels_trained'] = results['labels']
     test_df['temp'] = results['predictions']
     check_no_missing_values( test_df, results )
@@ -182,7 +183,7 @@ class SavePeftModelCallback( TrainerCallback ):
             os.remove( pytorch_model_path )
         return control
 
-def get_trainer(run_details, training_args, data_collator,train_dataset, eval_dataset):
+def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_dataset:Dataset, eval_dataset:Dataset)->Seq2SeqTrainer:
     #ID 170
     if run_details.version == "peft":
         trainer = Seq2SeqTrainer(

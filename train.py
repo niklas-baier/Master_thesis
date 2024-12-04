@@ -9,12 +9,13 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Union
 from augmentations import generate_noise_dataset
 from peftModification import create_peft, create_peft_model
-from test_Whisper import suppress_specific_warnings, timing_decorator
+from decorators import suppress_specific_warnings, timing_decorator
 import torchaudio
 from pathlib import Path
 import os
 import datasets
-
+import argparse
+from datasets import Features
 
 @dataclass
 @final
@@ -81,7 +82,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         return batch
 
 
-def generate_training_args(run_details):
+def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     #ID 169
     train_batch_size = 16
     per_device_eval_batch_size = 16
@@ -155,7 +156,7 @@ def generate_training_args(run_details):
 
 @suppress_specific_warnings
 @timing_decorator
-def transcribe_audio(eval_df, pipe, run_details):
+def transcribe_audio(eval_df:pd.DataFrame, pipe, run_details):
     # transcription of the test_data
     for i in tqdm( range( eval_df.shape[0] ) ):
 
@@ -190,9 +191,8 @@ def freeze_all_layers_but_last(model):
     return model
 
 
-def get_parser():
+def get_parser()-> argparse.ArgumentParser:
     # Implementation of ID:134
-    import argparse
     parser = argparse.ArgumentParser( description="RunDetails argument parser" )
 
     parser.add_argument( '--dataset_name', type=str, required=True, help='Name of the dataset' )
@@ -226,7 +226,7 @@ def get_parser():
     return parser
 
 
-def add_prediction_column(words, labels_trained, temp):
+def add_prediction_column(words:pd.Series, labels_trained:pd.Series, temp:pd.Series)-> pd.Series:
     if words == labels_trained:
         return temp
     else:
@@ -238,7 +238,7 @@ def add_prediction_column(words, labels_trained, temp):
 
 
 
-def get_model_size(model_id):
+def get_model_size(model_id:str)-> str:
     import re
 
     # Regex pattern splits on substrings "; " and ", "
@@ -280,7 +280,7 @@ get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", ta
 get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe",use_fast=True )
 #ID158
 get_plain_model = partial(AutoModelForSpeechSeq2Seq.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True, attn_implementation="sdpa")
-def create_tokenizer_model_processor(run_details, torch_dtype):
+def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.dtype)-> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
     #ID156
 
     if (run_details.checkpoint_path != ""):
@@ -325,7 +325,7 @@ def create_tokenizer_model_processor(run_details, torch_dtype):
     return tokenizer, model, processor
 
 
-def generate_datasets(run_details, features, args, expanded_df, dev_df, eval_df):
+def generate_datasets(run_details:RunDetails, features:Features, args:argparse, expanded_df:pd.DataFrame, dev_df:pd.DataFrame, eval_df:pd.DataFrame)-> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
     #ID 160
     from preprocessing import generate_test_features
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets

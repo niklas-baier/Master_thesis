@@ -3,12 +3,12 @@ from pathlib import Path
 import meeteval.wer.wer.siso
 import pandas as pd
 from jiwer import cer
-
+from train import RunDetails, RunResults
 from latex import create_base_line_latex_tables, create_latex_table, save_latex_csv
 from preprocessing import get_formated_date
 
 
-def log_run(run_details, run_results, training_time=0):
+def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> None:
     #implementation of ID: 63
     results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
@@ -77,7 +77,7 @@ def log_current_commit():
     except subprocess.CalledProcessError as e:
         print( f"An error occurred while logging the git information: {e}" )
 
-def boxplot_wer(data):
+def boxplot_wer(data:pd.DataFrame) ->None:
     import matplotlib.pyplot as plt
     # Extract attributes from each ErrorRate object into separate columns
     data['error_rate'] = data['wer'].apply( lambda x: x.error_rate )

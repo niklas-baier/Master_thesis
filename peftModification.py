@@ -61,7 +61,7 @@ def alterative_peft(run_details, model):
     from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
     from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
     # q_proj, v_proj, k_proj, out_proj, fc1, fc2
-    config = LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none", layers_to_transform=[0,1])
+    config = LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")#layers_to_transform=[0,1]
 
     model = get_peft_model(model, config)
     model.print_trainable_parameters()
