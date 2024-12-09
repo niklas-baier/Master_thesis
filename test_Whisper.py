@@ -1,32 +1,13 @@
 import warnings
-from functools import wraps
 import time
+from train import RunDetails
+from typing import Union
+import pandas as pd 
+import unittest
 
 
 
-
-def timing_decorator(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        print(f"Execution time: {end_time - start_time} seconds")
-        return result
-    return wrapper
-
-
-
-# Define a decorator to suppress specific warnings
-def suppress_specific_warnings(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)  # Suppress FutureWarning
-            return func(*args, **kwargs)
-    return wrapper
-
-
-def run_details_valid(run_details):
+def run_details_valid(run_details:RunDetails) -> bool:
     valid_run_details = get_dict_of_acceptable_run_details()
     if run_details.train_state in valid_run_details["train_state"]:
         print(f"{run_details.train_state} as train_state valid")
@@ -54,7 +35,7 @@ def run_details_valid(run_details):
 
     return False
 
-def get_dict_of_acceptable_run_details():
+def get_dict_of_acceptable_run_details() -> dict:
     return {
         "train_state": ["T","NT"],
         "version": ["vanilla","peft","last-layer"],
@@ -84,10 +65,17 @@ def dipco_only_planned_special_tokens(expanded_df,eval_df):
     return (train_all_in_array and eval_all_in_array)
 
 
-def check_no_missing_values(test_df, results):
+def check_no_missing_values(test_df:pd.DataFrame, results:pd.DataFrame) -> None :
     words = test_df['words'].tolist()
     labels = list(results['labels'])
     labels = list(results['labels'])
     comparison = [col == word for col, word in zip(labels, words)]
     all_match = all(comparison)
     assert(all_match == True)
+
+
+'''class Test_dfs(unittest.TestCase):
+    
+def check_dataframe_for_correct_modifications():
+    import polars as pl
+    pl = '''
