@@ -49,6 +49,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         "oversampling": run_details.oversampling,
         "training_time": training_time,
         "data_portion in training" : run_details.data_portion,
+        "beamforming": run_details.beamforming,
 
         # wer far field microphones
         # wer close microphones

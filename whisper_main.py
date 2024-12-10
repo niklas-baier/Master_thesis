@@ -222,7 +222,7 @@ formated_date = preprocessing.get_formated_date()
 
 run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                          train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion)
+                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming)
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)

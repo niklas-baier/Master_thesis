@@ -36,6 +36,7 @@ class RunDetails:
     additional_tokens: str = field( default="N" )  # should additonal tokens be added
     checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
     dataset_evaluation_part: str = field(default ="eval")
+    beamforming: str = field(default ="N")
 
 
 
@@ -219,6 +220,7 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument( '--oversampling_clean_data', type=int, choices=[1,2,3,4,5,6,7,8,9,10], required= True )
     parser.add_argument( '--checkpoint', type=str, required=False )
     parser.add_argument( '--data_portion', type=str, choices=["clean-only", "far-only", "all"], required=True )
+    parser.add_argument( '--beamforming', type=str, choices=["Y","N"], required=False )
 
 
 
