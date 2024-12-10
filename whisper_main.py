@@ -25,7 +25,6 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 def compute_metrics(pred:EvalPrediction)->dict:
-    breakpoint()
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 
@@ -63,7 +62,6 @@ def compute_chime_metrics(pred:EvalPrediction)->dict:
     label_ids[label_ids == -100] = tokenizer.pad_token_id
 
     # we do not want to group tokens when computing the metrics
-    breakpoint()
     if len(pred_ids) == 2:
         first_value = pred_ids[0]
         pred_ids = np.argmax(first_value, axis=-1)  # Shape: (598, 81) Assuming those are logits
