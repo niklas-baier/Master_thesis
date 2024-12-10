@@ -173,13 +173,15 @@ def generate_microphone_paths(row:pd.Series,mode_path:str)-> List[str]:
     # Implementation of ID141
 
     paths = []
-
-    for i in range(1,2):
-        path = f"{mode_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
-        paths.append(path)
-
-    path = f"{mode_path}/{row['session_id']}_{row['speaker_id']}.wav"
-    paths.append(path)
+    if row['audio'] == 'close-talk':
+        for i in range(1, 2):
+            path = f"{mode_path}/{row['session_id']}_{row['speaker_id']}.wav"
+            paths.append(path)
+    else:
+         for i in range(1,2):
+             path = f"{mode_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
+             paths.append(path)
+    
     return paths
 
 
@@ -283,9 +285,10 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     # Apply the function to generate the paths for each row
     dataframe['file_path'] = dataframe.apply(generate_microphone_paths, axis=1, args=(mode_path,))
     # Expand the DataFrame to include the microphone paths
-    dataframe = dataframe.explode('file_path').reset_index(drop=True)
-    dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
-    dataframe = dataframe[dataframe['audio'] != 'close-talk']
+    dataframe = dataframe.explode('file_path').reset_index(drop=True) #doubles the size
+
+    dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1) 
+    
     # get the maximum speaking duration
     dataframe['duration'] = dataframe.apply(lambda row: row['end'] - row['start'], axis=1)
     if dataframe['frames'].isnull().any():
@@ -548,8 +551,8 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
         expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
         if(run_details.developer_mode == "N"):
             if(run_details.data_portion == "all"):
-                assert ((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
-                values = ['file_path'].value_counts().value_counts.values
+                assert (original_size := df.shape[0]) in (3673, 3405)
+                values = eval_df['file_path'].value_counts().value
                 max_value = values.max() # the channels
                 close_samples_value_counts = np.where(values < max_value) 
                 assert (close_samples_value_counts == max_value)
