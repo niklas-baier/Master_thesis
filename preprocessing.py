@@ -299,7 +299,6 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     dataframe[['startframe', 'endframe']] = pd.DataFrame(dataframe['frames'].tolist(), index=dataframe.index)
     dataframe['num_frames'] = dataframe['endframe'] - dataframe['startframe']
     dataframe = dataframe.rename(columns={'speaker_id':'speaker'}) # to give both datasets the same names
-    dataframe = remove_duplicates(dataframe)
     # #dataframe['speaker_id_int'] = dataframe['speaker_id'].str.extract('(\d+)').astype(int) there are not the same persons in each dataset
 
     #train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
@@ -552,10 +551,10 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
         if(run_details.developer_mode == "N"):
             if(run_details.data_portion == "all"):
                 assert (original_size := df.shape[0]) in (3673, 3405)
-                values = eval_df['file_path'].value_counts().value
+                values = eval_df['file_path'].value_counts().values
                 max_value = values.max() # the channels
-                close_samples_value_counts = np.where(values < max_value) 
-                assert (close_samples_value_counts == max_value)
+                close_samples_value_counts = np.where(values < max_value, values, 0) 
+                assert (np.sum(close_samples_value_counts) == max_value)
 
 
 
