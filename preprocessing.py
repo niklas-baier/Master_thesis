@@ -270,7 +270,7 @@ def drop_chime_columns(dataframe:pd.DataFrame, mode_path:str, run_details)-> pd.
     return dataframe
 
 
-def dipco_parsing(dataframe:pd.DataFrame, run_details, mode_path:str)-> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:str)-> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     #Implementation of ID139
     # Apply the function to each row and concatenate the results
     dataframe = pd.concat([expand_start_time(row) for _, row in dataframe.iterrows()], ignore_index=True)
@@ -319,7 +319,7 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details, mode_path:str)-> tuple[pd
         return train_dataframe, eval_dataframe,test_dataframe
 
 
-def set_data_portion_of_training(run_details, train_dataframe:pd.DataFrame)-> pd.DataFrame:
+def set_data_portion_of_training(run_details:"RunDetails", train_dataframe:pd.DataFrame)-> pd.DataFrame:
     # ID144
     if run_details.data_portion == "clean-only":
         train_dataframe = augmentations.filter_p_audio( train_dataframe )
@@ -347,7 +347,7 @@ def dipco_split_sessions(dataframe:pd.DataFrame)->tuple[pd.DataFrame, pd.DataFra
     train_dataframe = dataframe[dataframe['session_id'] != eval_session]
     return train_dataframe, eval_dataframe
 
-def drop_columns_dipco(dataframe:pd.DataFrame, run_details)-> pd.DataFrame:
+def drop_columns_dipco(dataframe:pd.DataFrame, run_details:"RunDetails")-> pd.DataFrame:
     if run_details.task =='classification':
         dataframe.drop(
             columns=['endframe', 'session_id', 'gender', 'nativeness', 'mother_tongue', 'audio', 'start',
@@ -361,7 +361,7 @@ def drop_columns_dipco(dataframe:pd.DataFrame, run_details)-> pd.DataFrame:
     return dataframe
 
 
-def _build_basic_features(run_details) -> dict:
+def _build_basic_features(run_details:"RunDetails") -> dict:
     basic_features = {
         'file_path': Value( 'string' ),
         'startframe': Value( 'int64' ),
@@ -378,12 +378,12 @@ def _build_basic_features(run_details) -> dict:
     return basic_features
 
 
-def generate_features(run_details) -> Features:
+def generate_features(run_details:"RunDetails") -> Features:
     basic_features = _build_basic_features( run_details )
     return Features( basic_features )
 
 
-def generate_test_features(run_details) -> Features:
+def generate_test_features(run_details:"RunDetails") -> Features:
     basic_features = _build_basic_features( run_details )
     basic_features['results'] = Value( 'string' )
     return Features( basic_features )
@@ -471,7 +471,7 @@ def prepare_noisedataset_seq2seq(batch):
 
 
 
-def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_paths):
+def map_datasets(run_details:"RunDetails", train_dataset:Dataset,eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:str)-> None:
     #ID 163
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
@@ -485,7 +485,7 @@ def map_datasets(run_details, train_dataset,eval_dataset, test_dataset, dataset_
 
 
 
-def map_and_store_datasets(run_details:Any, train_dataset:Dataset, eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:dict, mapping_function:Callable[[Any], Dataset]) ->None:
+def map_and_store_datasets(run_details:"RunDetails", train_dataset:Dataset, eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:dict, mapping_function:Callable[[Any], Dataset]) ->None:
     #ID 164
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
@@ -542,12 +542,18 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
 
     else:
         if run_details.dataset_name == "dipco":
-            assert ((original_size := df.shape[0]) == 3673)
+            assert ((original_size := df.shape[0]) == 3673 or original_size ==3405)
+
 
         expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
         if(run_details.developer_mode == "N"):
             if(run_details.data_portion == "all"):
                 assert ((expanded_df.shape[0] + dev_df.shape[0] + eval_df.shape[0]) / 6 == original_size)
+                values = ['file_path'].value_counts().value_counts.values
+                max_value = values.max() # the channels
+                close_samples_value_counts = np.where(values < max_value) 
+                assert (close_samples_value_counts == max_value)
+
 
 
 
@@ -560,7 +566,7 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
     return expanded_df, dev_df, eval_df
 
 
-def oversample_clean_audio(expanded_df:pd.DataFrame, run_details:Any)-> pd.DataFrame:
+def oversample_clean_audio(expanded_df:pd.DataFrame, run_details:"RunDetails")-> pd.DataFrame:
     #ID149
     import numpy as np
     from augmentations import filter_p_audio
@@ -597,7 +603,7 @@ class Paths:
             raise Exception("Paths have not been initialized.")
         return cls._instance
 
-def generate_transcription_csv_path(run_details:Any)-> str:
+def generate_transcription_csv_path(run_details:"RunDetails")-> str:
     # ID 167
     from train import get_model_size
     model_size = get_model_size(run_details.model_id)

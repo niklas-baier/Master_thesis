@@ -8,8 +8,7 @@ import torchaudio.functional as F
 import preprocessing
 from audioprocessing import get_spectrogram
 
-
-def get_noises():
+def get_noises()->pd.DataFrame:
     #ID147
     csv_df = pd.read_csv( 'syntheticdata/ESC-50/meta/esc50.csv' )
     print( csv_df.head() )
@@ -27,7 +26,7 @@ def get_path_noise(filename):
     file_path = f'{cwd}/syntheticdata/ESC-50/audio/{filename}'
     return file_path
 
-def create_augmentations():
+def create_augmentations()->None:
     spec = get_spectrogram( power=None )
     stretch = T.TimeStretch()
 
@@ -35,7 +34,7 @@ def create_augmentations():
     spec_09 = stretch( spec, overriding_rate=0.9 )
 
 
-def apply_noises(filepath_original_sound, filepath_synthetic_noise):
+def apply_noises(filepath_original_sound:str, filepath_synthetic_noise:str)->np.ndarray:
     speech, sr = torchaudio.load( filepath_original_sound )
     noise, syn_sr = torchaudio.load( filepath_synthetic_noise )
     assert sr == syn_sr, f"the sample rates of the speech {sr} and of the noise {syn_sr}are different and need to be resampled "
@@ -47,7 +46,7 @@ def apply_noises(filepath_original_sound, filepath_synthetic_noise):
     return noisy_speeches
 
 
-def get_noise_taxonomy():
+def get_noise_taxonomy()->dict:
     sound_dict = sound_categories = {
         "Animals": [
             "dog",
@@ -112,7 +111,7 @@ def get_noise_taxonomy():
     return sound_dict
 
 
-def generate_noise_dataset(expanded_df, run_details, features):
+def generate_noise_dataset(expanded_df:pd.DataFrame, run_details, features):
     #TODO sollte zusammen sein wahrscheinlich
     train_dataset_path, _, _, tsne_dataset_path = preprocessing.generate_dataset_paths( run_details=run_details )
     # filter out and take only the clean samples with p in filepath
@@ -142,12 +141,12 @@ def add_file_name(func):
 
 
 @add_file_name
-def filter_p_audio(expanded_df):
+def filter_p_audio(expanded_df:pd.DataFrame)->pd.DataFrame:
     clean_expanded_df = expanded_df.query( "file_name.str.contains(r'P\d{2}')", engine='python' )
     clean_expanded_df.drop(columns='file_name', inplace=True)
     return clean_expanded_df
 @add_file_name
-def filter_far_audio(expanded_df):
+def filter_far_audio(expanded_df:pd.DataFrame)->pd.DataFrame:
     clean_expanded_df = expanded_df.query( "not file_name.str.contains(r'P\d{2}')", engine='python' )
     clean_expanded_df.drop(columns='file_name', inplace=True)
     return clean_expanded_df

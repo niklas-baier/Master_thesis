@@ -1,5 +1,5 @@
 import pandas as pd
-def save_latex_csv(df):
+def save_latex_csv(df:pd.DataFrame)->None:
     # select only the runs not on dev_mode
     df = df[df['developer_mode'] == "N"]
     # delete the dates
@@ -11,7 +11,7 @@ def rename_columns_for_latex(df):
     return df
 
 
-def create_latex_table(df, columns):
+def create_latex_table(df:pd.DataFrame, columns)->None:
     # drop unnecessary_columns
 
     #rename columns if they are not latex_conform
@@ -33,7 +33,7 @@ def create_latex_table(df, columns):
     return
 
 
-def create_dipco_baseline_latex_table(dipco_df):
+def create_dipco_baseline_latex_table(dipco_df:pd.DataFrame)->None:
     from ast import literal_eval
 
     dipco_df.dropna( subset=['wer_per_mic_type'], inplace=True ) # filter out the old values that are NaN
