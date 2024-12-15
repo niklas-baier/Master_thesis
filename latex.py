@@ -34,29 +34,60 @@ def create_latex_table(df:pd.DataFrame, columns)->None:
 
 
 def create_dipco_baseline_latex_table(dipco_df:pd.DataFrame)->None:
-    from ast import literal_eval
+    select_relevant_baseline_rows(dipco_df)
+    create_vanilla_baseline_latex_table(dipco_df)
+    breakpoint()
 
-    dipco_df.dropna( subset=['wer_per_mic_type'], inplace=True ) # filter out the old values that are NaN
+def create_vanilla_baseline_latex_table(df):
+    vanilla = df.query( 'Training == "T"' )
+    #df = df.query( 'augmentation == "N"' ) #TODO
+    #df = df.query( 'oversampling == 1' )
+    vanilla = vanilla.query( 'beamforming != "Y"' )
+    vanilla = vanilla.query( 'Training_version == "vanilla"' )
+
+    #separate after each data portion in training
+    far_away_df = vanilla.query('`data_portion in training` == "far-only"')
+    close_df = vanilla.query('`data_portion in training` == "clean-only"')
+    all_df = vanilla.query('`data_portion in training` == "all"')
+    print("vanilla-far")
+    print_baseline_table(far_away_df)
+    print("vanilla-close")
+    print_baseline_table(close_df)
+    print("vanilla-all")
+    print_baseline_table(all_df)
+    return
+def select_relevant_baseline_rows(dipco_df):
+    from ast import literal_eval
+    dipco_df.dropna(subset=['wer_per_mic_type'], inplace=True) # filter out the old values that are NaN
     dipco_df['wer_per_mic_type'] = dipco_df['wer_per_mic_type'].apply(literal_eval)
+    filtered_df = dipco_df.query('oversampling.isna() or oversampling == 1')
+    dipco_df = dipco_df.query('beamforming != "Y"') # TODO augmentation already filtered out ? is not in the columns
+    dipco_df = dipco_df.query('Training== "NT"')
+    print("baseline table")
+    print_baseline_table(dipco_df)
+    return 
+
+def print_baseline_table(dipco_df):
     baseline_table = pd.DataFrame( {
         'name of the model': dipco_df['model_name'],
         'evaluation part' :dipco_df['dataset_evaluation_part'],
         'close talk': dipco_df['wer_per_mic_type'].apply(lambda x: x['P']),
         'far field': dipco_df['wer_per_mic_type'].apply(lambda x: x['U']),
         } )
-    table = baseline_table.pivot_table(
+    pivot_table = baseline_table.pivot_table(
         index='evaluation part',
         values=['name of the model','close talk', 'far field'],
         aggfunc='min'
-        ).round( 2 ).to_latex(
+        )
+    print(pivot_table)
+    latex_table = pivot_table.round( 2 ).to_latex(
         caption='Baseline table ',
         label='tab:baseline',
         float_format="%.2f",
         index=True,
         header=True
         )
-    print(table)
-    breakpoint()
+    print(latex_table)
     # split into eval and dev part
 
 

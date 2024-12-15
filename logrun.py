@@ -55,7 +55,9 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         # wer close microphones
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    breakpoint()
     df.to_csv(filepath, index=False)
+    df = df.loc[::-1].reset_index(drop=True) # reverse the order of the dataframe original was in ascending order for visualization with df.head we change that 
     save_latex_csv(df)
     create_latex_table( df, "str" )
     create_base_line_latex_tables()
