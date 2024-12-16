@@ -544,6 +544,7 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
 
     else:
         if run_details.dataset_name == "dipco":
+            df = load_and_concatenate_json_files(transcript_eval_path)
             assert ((original_size := df.shape[0]) == 3673 or original_size ==3405)
 
 
