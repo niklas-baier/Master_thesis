@@ -29,6 +29,8 @@ def run_details_valid(run_details:RunDetails) -> bool:
                                         print(f"{run_details.augmentation} as augmentation mode valid")
                                         if run_details.dataset_evaluation_part in valid_run_details["dataset_evaluation_part"]:
                                             print(f"{run_details.dataset_evaluation_part} as dataset_evaluation valid")
+                                            if run_details.beamforming == "Y":
+                                                assert(run_details.data_portion == "far-only")
                                             if run_details.augmentation == ['Y']:
                                                 assert run_details.train_state == "T", "augmentation only in training mode valid"
                                             return True
