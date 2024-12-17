@@ -309,6 +309,12 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
         breakpoint()
         # only take close micorphone samples with no background music
         test_dataframe = add_noise_paths(test_dataframe)
+    if run_details.beamforming == 'Y':
+        beamformed_direc = os.path.join(os.getcwd(), 'beamforming')
+        test_dataframe['filepath'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+
+
+
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
