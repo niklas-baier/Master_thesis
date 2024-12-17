@@ -311,7 +311,7 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
         test_dataframe = add_noise_paths(test_dataframe)
     if run_details.beamforming == 'Y':
         beamformed_direc = os.path.join(os.getcwd(), 'beamforming')
-        test_dataframe['filepath'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+        test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
 
 
 
@@ -497,14 +497,12 @@ def map_and_store_datasets(run_details:"RunDetails", train_dataset:Dataset, eval
     #ID 164
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
-    if run_details.train_state == 'T':
-        train_dataset = train_dataset.map(mapping_function)
-        train_dataset.save_to_disk(dataset_paths['train'])
-        del train_dataset
-        mapping_function = prepare_dataset_seq2seq
-        eval_dataset = eval_dataset.map(mapping_function)
-        eval_dataset.save_to_disk(dataset_paths['eval'])
-        del eval_dataset
+    
+    train_dataset = train_dataset.map(mapping_function)
+    train_dataset.save_to_disk(dataset_paths['train'])
+    mapping_function = prepare_dataset_seq2seq
+    eval_dataset = eval_dataset.map(mapping_function)
+    eval_dataset.save_to_disk(dataset_paths['eval'])
     test_dataset = test_dataset.map(mapping_function)
     test_dataset.save_to_disk(dataset_paths['test'])
     del test_dataset
@@ -554,7 +552,7 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
             assert ((original_size := df.shape[0]) == 3673 or original_size ==3405)
 
 
-        expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, dev_path)
+        expanded_df, dev_df, eval_df = dipco_parsing(df, run_details, eval_path)
         if(run_details.developer_mode == "N"):
             if(run_details.data_portion == "all"):
                 assert (original_size := df.shape[0]) in (3673, 3405)
