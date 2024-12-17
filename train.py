@@ -95,64 +95,58 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
+
+    # Define base parameters
+    base_args = {
+        "output_dir": output_dir,
+        "logging_dir": './logs',
+        "gradient_accumulation_steps": 1,
+        "gradient_checkpointing": True,
+        "evaluation_strategy": "steps",
+        "per_device_eval_batch_size": per_device_eval_batch_size,
+        "predict_with_generate": True,
+        "save_steps": save_steps,
+        "eval_steps": save_steps,
+        "fp16": True,
+        "logging_steps": loggings_steps,
+        "remove_unused_columns": True,
+        "eval_accumulation_steps": 4,
+        "report_to": 'wandb',
+        "metric_for_best_model": "wer",
+        "greater_is_better": False,
+        "save_total_limit": 5,
+        "dataloader_num_workers": 8,
+        "dataloader_pin_memory": True
+    }
+    
+    # Adjustments for PEFT version
     if run_details.version == "peft":
-        training_args = Seq2SeqTrainingArguments(
-            output_dir=output_dir,
-              # change to a repo name of your choice
-            per_device_train_batch_size=8,
-            gradient_accumulation_steps=2,  # increase by 2x for every 2x decrease in batch size
-            learning_rate=1e-3,
-            warmup_steps=10,
-            num_train_epochs=1,
-            evaluation_strategy="steps",
-            fp16=True,
-            per_device_eval_batch_size=16,
-            eval_steps = 50,
-            generation_max_length=128,
-            logging_steps=50,
-            max_steps=500,  # only for testing purposes, remove this from your final run :)
-            remove_unused_columns=True,
-            eval_accumulation_steps = 4,
-            # required as the PeftModel forward doesn't have the signature of the wrapped model's forward
-            label_names=["labels"],  # same reason as abovei
-            dataloader_num_workers=4,
-            torch_empty_cache_steps=8,
-            save_total_limit = 2,
-            
+        peft_args = {   
+            "per_device_train_batch_size": 4,
+            "learning_rate": 1e-4,
+            "warmup_steps": 2,
+            "max_steps": 500,
+            "generation_max_length": 128,
+            "torch_empty_cache_steps": 4,
+            "label_names": ["labels"]
+        }
+        # Merge base and PEFT-specific arguments
+        training_args = Seq2SeqTrainingArguments(**base_args, **peft_args)
+    else:
+        non_peft_args = {
+            "per_device_train_batch_size": train_batch_size,
+            "learning_rate": 1e-5,
+            "warmup_steps": 0,
+            "max_steps": max_steps,
+            "generation_max_length": 200,
+            "load_best_model_at_end": True,
+            "run_name": run_name,
+        }
+        # Merge base and non-PEFT-specific arguments
+        training_args = Seq2SeqTrainingArguments(**base_args, **non_peft_args)
 
-            )
-        return training_args
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=output_dir,
-        logging_dir='./logs',
-        per_device_train_batch_size=train_batch_size,
-        gradient_accumulation_steps=1,  # increase by 2x for every 2x decrease in batch size
-        learning_rate=1e-5,
-        warmup_steps=0,
-        max_steps=max_steps,  # 4000
-        gradient_checkpointing=True,
-        eval_strategy="steps",
-        per_device_eval_batch_size=per_device_eval_batch_size,
-        predict_with_generate=True,
-        generation_max_length=200,
-        save_steps=save_steps,
-        eval_steps=50,
-        fp16=True,
-        logging_steps=loggings_steps,
-        eval_accumulation_steps = 4,
-        report_to='wandb',
-        run_name=run_name,
-        load_best_model_at_end=True,
-        metric_for_best_model="wer",
-        greater_is_better=False,
-        remove_unused_columns=True,
-        save_total_limit=4,
-        dataloader_num_workers=8,
-        dataloader_pin_memory= True
-
-
-        )
     return training_args
+  
 
 
 @suppress_specific_warnings
