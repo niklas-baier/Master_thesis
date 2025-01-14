@@ -202,7 +202,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
@@ -227,6 +226,7 @@ features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
 dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+breakpoint()
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)

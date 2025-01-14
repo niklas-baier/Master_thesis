@@ -1,3 +1,8 @@
+
 [submodule "genaibook"]
 	path = genaibook
 	url = https://github.com/genaibook/genaibook.git
+[submodule "diffusion/sgmse"]
+	path = diffusion/sgmse
+	url = https://github.com/sp-uhh/sgmse.git
+
