@@ -1,6 +1,9 @@
 import evaluate
+from torchsummary import summary
 import numpy as np 
 import json
+import glob 
+import re
 import polars as pl
 import time
 from functools import partial
@@ -24,6 +27,44 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
+
+
+def get_latest_checkpoint(path):
+    # Find all directories matching the pattern checkpoint-{number}
+    checkpoint_dirs = glob.glob(os.path.join(path, "checkpoint-*"))
+    
+    # Extract numbers and find the highest one
+    numbers = []
+    for dir_path in checkpoint_dirs:
+        match = re.search(r'checkpoint-(\d+)$', dir_path)
+        if match:
+            numbers.append(int(match.group(1)))
+    
+    if not numbers:
+        return None
+    
+    # Get the highest number and construct the full path
+    latest_checkpoint = f"checkpoint-{max(numbers)}"
+    result_path = os.path.join(path, latest_checkpoint)
+    
+    return result_path
+
+
+def get_peft_model(trainer,run_details):
+    path = trainer.args.output_dir
+    highest_checkpoint_path = get_latest_checkpoint(path)
+    df = pl.read_json(os.path.join(highest_checkpoint_path, 'trainer_state.json'))
+    best_checkpoint = df['best_model_checkpoint']
+    model = get_normal_model(run_details)
+    adapter_path = best_checkpoint
+    adapter_name = model.load_adapter(adapter_path)
+    model.active_adapters = adapter_name
+    return model 
+
+
+def get_normal_model(run_details):
+    copy = run_details
+    copy.version = "vanilla"
 def compute_metrics(pred:EvalPrediction)->dict:
     pred_ids = pred.predictions
     label_ids = pred.label_ids
@@ -96,6 +137,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
    
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
+       breakpoint()
+       model = get_peft_model(trainer, run_details)
        total_size = len(test_dataset)
        part_size = total_size // 20
        #create 20 slices
@@ -192,6 +235,8 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             data_collator=data_collator,
             compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+
          
             )
         # silence the warnings. Please re-enable for inference!
@@ -253,6 +298,9 @@ else:
     #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
     start_time = time.perf_counter()
     trainer.train()
+
+    breakpoint()
+    
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
   
@@ -271,9 +319,46 @@ else:
 # significantly faster than pandas dataframe
 
 
+def test_checkpoint(path):
+    # Find all directories matching the pattern checkpoint-{number}
+    checkpoint_dirs = glob.glob(os.path.join(path, "checkpoint-*"))
+    
+    # Extract numbers and find the highest one
+    numbers = []
+    for dir_path in checkpoint_dirs:
+        match = re.search(r'checkpoint-(\d+)$', dir_path)
+        if match:
+            numbers.append(int(match.group(1)))
+    
+    if not numbers:
+        return None
+    
+    # Get the highest number and construct the full path
+    latest_checkpoint = f"checkpoint-{max(numbers)}"
+    result_path = os.path.join(path, latest_checkpoint)
+    
+    return result_path
 
 
+def get_peft_model(trainer,run_details):
+    path = trainer.training_args.output_dir
+    highest_checkpoint_path = get_latest_checkpoint(path)
+    df = pl.read_json(os.path.join(highest_checkpoint_path, 'trainer_state.json'))
+    best_checkpoint = df['best_model_checkpoint'].item()
+    breakpoint()
+    model = get_normal_model(run_details)
+    adapter_path = best_checkpoint
+    adapter_name = model.load_adapter(adapter_path)
+    model.active_adapters = adapter_name
+    return model 
 
 
-raise ValueError()
+def get_normal_model(run_details):
+    copy = run_details
+    copy.version = "vanilla"
+    tokenizer, model, processor = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
+    breakpoint()
+    return model
+
+
 

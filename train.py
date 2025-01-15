@@ -90,8 +90,8 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 100
-    loggings_steps = 50
+    max_steps = 200
+    loggings_steps = 100
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
@@ -125,10 +125,11 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
             "per_device_train_batch_size": 4,
             "learning_rate": 1e-4,
             "warmup_steps": 2,
-            "max_steps": 500,
+            "max_steps": 2000,
             "generation_max_length": 128,
             "torch_empty_cache_steps": 4,
-            "label_names": ["labels"]
+            "label_names": ["labels"],
+
         }
         # Merge base and PEFT-specific arguments
         training_args = Seq2SeqTrainingArguments(**base_args, **peft_args)
