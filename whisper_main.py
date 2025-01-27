@@ -54,7 +54,7 @@ def get_peft_model(trainer,run_details):
     path = trainer.args.output_dir
     highest_checkpoint_path = get_latest_checkpoint(path)
     df = pl.read_json(os.path.join(highest_checkpoint_path, 'trainer_state.json'))
-    best_checkpoint = df['best_model_checkpoint']
+    best_checkpoint = df['best_model_checkpoint'].item()
     model = get_normal_model(run_details)
     adapter_path = best_checkpoint
     adapter_name = model.load_adapter(adapter_path)
@@ -65,6 +65,8 @@ def get_peft_model(trainer,run_details):
 def get_normal_model(run_details):
     copy = run_details
     copy.version = "vanilla"
+    tokenizer, model , processor = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
+    return model
 def compute_metrics(pred:EvalPrediction)->dict:
     pred_ids = pred.predictions
     label_ids = pred.label_ids
@@ -137,8 +139,9 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
    
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
-       breakpoint()
        model = get_peft_model(trainer, run_details)
+       trainer.args.model = model
+       '''
        total_size = len(test_dataset)
        part_size = total_size // 20
        #create 20 slices
@@ -147,7 +150,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
            lazy_parts[-1] = test_dataset.select(range(19 * part_size, total_size))
        predictions = [predict_logits_and_get_strings_from_them(trainer,x) for x in lazy_parts]
        predictions = pl.concat(predictions, how='vertical')
-       print("hi")
+       print("hi")'''
+       predictions = predict(trainer=trainer, test_dataset=test_dataset)
 
        
 
@@ -235,7 +239,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             data_collator=data_collator,
             compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
 
          
             )
@@ -271,8 +274,8 @@ features = preprocessing.generate_features(run_details)
 expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
 expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
 dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
-breakpoint()
 tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
+breakpoint()
 train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
 transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
 eval_df.to_csv(transcription_csv_path, index=False)
@@ -319,46 +322,8 @@ else:
 # significantly faster than pandas dataframe
 
 
-def test_checkpoint(path):
-    # Find all directories matching the pattern checkpoint-{number}
-    checkpoint_dirs = glob.glob(os.path.join(path, "checkpoint-*"))
-    
-    # Extract numbers and find the highest one
-    numbers = []
-    for dir_path in checkpoint_dirs:
-        match = re.search(r'checkpoint-(\d+)$', dir_path)
-        if match:
-            numbers.append(int(match.group(1)))
-    
-    if not numbers:
-        return None
-    
-    # Get the highest number and construct the full path
-    latest_checkpoint = f"checkpoint-{max(numbers)}"
-    result_path = os.path.join(path, latest_checkpoint)
-    
-    return result_path
 
 
-def get_peft_model(trainer,run_details):
-    path = trainer.training_args.output_dir
-    highest_checkpoint_path = get_latest_checkpoint(path)
-    df = pl.read_json(os.path.join(highest_checkpoint_path, 'trainer_state.json'))
-    best_checkpoint = df['best_model_checkpoint'].item()
-    breakpoint()
-    model = get_normal_model(run_details)
-    adapter_path = best_checkpoint
-    adapter_name = model.load_adapter(adapter_path)
-    model.active_adapters = adapter_name
-    return model 
-
-
-def get_normal_model(run_details):
-    copy = run_details
-    copy.version = "vanilla"
-    tokenizer, model, processor = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
-    breakpoint()
-    return model
 
 
 

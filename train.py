@@ -37,6 +37,7 @@ class RunDetails:
     checkpoint_path: str = field(default ="") # if a checkpoint is used for transcription what checkpoint should be loaded
     dataset_evaluation_part: str = field(default ="eval")
     beamforming: str = field(default ="N")
+    num_trainable_parameters: int = 0
 
 
 
