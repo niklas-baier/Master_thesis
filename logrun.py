@@ -26,7 +26,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         df = pd.read_csv(filepath)
     else:
         df = pd.DataFrame(columns=["model_name", "dataset", "date", "Training_version", "environment", "developer_mode", "wer", "cer","results_path","checkpoint-path", "notes"])
-
+        
     new_row = {
         "model_name": run_details.model_id,
         "dataset": run_details.dataset_name,
@@ -50,6 +50,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         "training_time": training_time,
         "data_portion in training" : run_details.data_portion,
         "beamforming": run_details.beamforming,
+        "num_trainable_parameters" : run_details.num_trainable_parameters,
 
         # wer far field microphones
         # wer close microphones
