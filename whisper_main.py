@@ -27,7 +27,7 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
-
+import copy 
 
 def get_latest_checkpoint(path):
     # Find all directories matching the pattern checkpoint-{number}
@@ -48,7 +48,22 @@ def get_latest_checkpoint(path):
     result_path = os.path.join(path, latest_checkpoint)
     
     return result_path
-
+def average_weights(model_1, model_2, model_3):
+    import copy
+    averaged_model = copy.deepcopy(model_1)  # Create a new model to store averaged weights
+    
+    # Iterate over model parameters
+    for param_name, param_1 in model_1.state_dict().items():
+        param_2 = model_2.state_dict()[param_name]
+        param_3 = model_3.state_dict()[param_name]
+        
+        # Average the weights
+        averaged_param = (param_1 + param_2+param_3) / 3.0
+        
+        # Set the averaged weights in the new model
+        averaged_model.state_dict()[param_name].copy_(averaged_param)
+    
+    return averaged_model
 
 def get_peft_model(trainer,run_details):
     path = trainer.args.output_dir
@@ -59,7 +74,30 @@ def get_peft_model(trainer,run_details):
     adapter_path = best_checkpoint
     adapter_name = model.load_adapter(adapter_path)
     model.active_adapters = adapter_name
+    if run_details.SWAD == True:
+        second_best_path, third_best_path = get_top_lora_paths(adapter_path=adapter_path, df=df)
+        model_1 = get_normal_model(run_details)
+        model_2 = copy.deepcopy(model_1)
+        model_2.load_adapter(second_best_path)
+        model_3 = copy.deepcopy(model_1)
+        model_3.load_adapter(third_best_path)
+        model_1.load_adapter(adapter_path)
+        assert(model_1.state_dict().keys() == model_2.state_dict().keys())
+
+        averaged_model = average_weights(model_1=model_1, model_2=model_2, model_3=model_3)
+        return averaged_model
     return model 
+
+def get_top_lora_paths(adapter_path,df):
+   eval_wers = [entry['eval_wer'] for log in df['log_history'] for entry in log if 'eval_wer' in entry]
+   steps = [entry['step'] for log in df['log_history'] for entry in log if 'step' in entry]
+   zipped = list(zip(eval_wers[1::2], steps[::2]))
+   zipped.sort() # sorts after the first element
+   steps = [ steps for (_,steps) in zipped[:3]] # get first 3 steps 
+   second_best = adapter_path.replace(str(steps[0]),str(steps[1]))
+   third_best = adapter_path.replace(str(steps[0]),str(steps[2]))
+   breakpoint()
+   return second_best, third_best
 
 
 def get_normal_model(run_details):
@@ -267,7 +305,7 @@ formated_date = preprocessing.get_formated_date()
 
 run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                          train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming)
+                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD)
 
 assert run_details_valid(run_details)
 features = preprocessing.generate_features(run_details)
@@ -302,7 +340,6 @@ else:
     start_time = time.perf_counter()
     trainer.train()
 
-    breakpoint()
     
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time

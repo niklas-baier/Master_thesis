@@ -38,6 +38,7 @@ class RunDetails:
     dataset_evaluation_part: str = field(default ="eval")
     beamforming: str = field(default ="N")
     num_trainable_parameters: int = 0
+    SWAD: bool = False
 
 
 
@@ -217,6 +218,7 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument( '--checkpoint', type=str, required=False )
     parser.add_argument( '--data_portion', type=str, choices=["clean-only", "far-only", "all"], required=True )
     parser.add_argument( '--beamforming', type=str, choices=["Y","N"], required=False )
+    parser.add_argument('--SWAD', type=bool, required=False)
 
 
 
