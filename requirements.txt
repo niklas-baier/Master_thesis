@@ -271,6 +271,7 @@ platformdirs @ file:///croot/platformdirs_1692205439124/work
 plotly @ file:///croot/plotly_1718136942809/work
 pluggy @ file:///tmp/build/80754af9/pluggy_1648024445381/work
 ply==3.11
+polars==1.21.0
 pooch @ file:///croot/pooch_1695850093751/work
 prometheus-client @ file:///tmp/abs_d3zeliano1/croots/recipe/prometheus_client_1659455100375/work
 prompt-toolkit @ file:///croot/prompt-toolkit_1704404351921/work
@@ -403,6 +404,7 @@ tomlkit @ file:///tmp/abs_56_0lnnq5x/croots/recipe/tomlkit_1658946880479/work
 toolz @ file:///croot/toolz_1667464077321/work
 torch==2.4.0
 torchaudio==2.4.0
+torchsummary==1.5.1
 torchvision==0.19.0
 tornado @ file:///croot/tornado_1718740109488/work
 tqdm @ file:///croot/tqdm_1716395931952/work

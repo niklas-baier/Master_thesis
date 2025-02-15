@@ -36,7 +36,27 @@ def create_latex_table(df:pd.DataFrame, columns)->None:
 def create_dipco_baseline_latex_table(dipco_df:pd.DataFrame)->None:
     select_relevant_baseline_rows(dipco_df)
     create_vanilla_baseline_latex_table(dipco_df)
+    create_peft_latex_table(dipco_df)
     breakpoint()
+
+def create_peft_latex_table(df):
+    #df = df.query( 'augmentation == "N"' ) #TODO
+    #df = df.query( 'oversampling == 1' )
+   
+    vanilla = df.query( 'Training_version == "peft"' )
+    breakpoint()
+
+    #separate after each data portion in training
+    far_away_df = vanilla.query('`data_portion in training` == "far-only"')
+    close_df = vanilla.query('`data_portion in training` == "clean-only"')
+    all_df = vanilla.query('`data_portion in training` == "all"')
+    print("peft-far")
+    print_baseline_table(far_away_df)
+    print("peft-close")
+    print_baseline_table(close_df)
+    print("peft-all")
+    print_baseline_table(all_df)
+    return
 
 def create_vanilla_baseline_latex_table(df):
     vanilla = df.query( 'Training == "T"' )
@@ -44,7 +64,6 @@ def create_vanilla_baseline_latex_table(df):
     #df = df.query( 'oversampling == 1' )
     vanilla = vanilla.query( 'beamforming != "Y"' )
     vanilla = vanilla.query( 'Training_version == "vanilla"' )
-
     #separate after each data portion in training
     far_away_df = vanilla.query('`data_portion in training` == "far-only"')
     close_df = vanilla.query('`data_portion in training` == "clean-only"')
