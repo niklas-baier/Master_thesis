@@ -31,6 +31,78 @@ from torch.utils.data import DataLoader, Subset
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 import copy 
 
+
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Change the current working directory to the directory where whisper_main.py is located
+    os.chdir(script_dir)
+    os.environ['WANDB_PROJECT'] = 'WHISPER'
+    os.environ['WAND_LOG_MODEL'] = 'true'
+    torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
+    parser = get_parser()
+    args = parser.parse_args()
+    formated_date = preprocessing.get_formated_date()
+
+    run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
+                            train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
+                            developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD)
+
+    assert run_details_valid(run_details)
+    features = preprocessing.generate_features(run_details)
+    expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+    expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+    dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+    tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
+    breakpoint()
+    train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
+    transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
+    eval_df.to_csv(transcription_csv_path, index=False)
+    data_collator = DataCollatorSpeechSeq2SeqWithPadding(
+        processor=processor,
+        decoder_start_token_id=model.config.decoder_start_token_id,
+    )
+    metric = evaluate.load("wer")
+    #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
+
+    training_args = generate_training_args(run_details)
+    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+
+
+    processor.save_pretrained(training_args.output_dir)
+    #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
+    if run_details.train_state == 'NT':
+        transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
+                                                            run_details=run_details )
+        run_results = visualize_results(transcription_csv_path_trained, run_details)
+        log_run( run_details=run_details, run_results=run_results )
+    else:
+        #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
+        start_time = time.perf_counter()
+        trainer.train()
+
+        
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+    
+        #model.push_to_hub(peft_model_id)
+        transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
+                                                            run_details=run_details )
+        run_results = visualize_results( transcription_csv_path_trained, run_details )
+
+        plot_loss(trainer, run_details=run_details)
+        plot_WER( trainer, run_details=run_details )
+        log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
+
+        #TODO take it from the mode
+        pass
+
+
+
+  
+
+if __name__ == "__main__":
+    main()
+
 def get_latest_checkpoint(path):
     # Find all directories matching the pattern checkpoint-{number}
     checkpoint_dirs = glob.glob(os.path.join(path, "checkpoint-*"))
@@ -105,12 +177,12 @@ def get_top_lora_paths(adapter_path,df):
 def get_normal_model(run_details):
     copy = run_details
     copy.version = "vanilla"
-    tokenizer, model , processor = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
+    _, model , _ = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
     return model
 def compute_metrics(pred:EvalPrediction)->dict:
     pred_ids = pred.predictions
     label_ids = pred.label_ids
-
+    tokenizer,_,_ = create_tokenizer_model_processor()
     # replace -100 with the pad_token_id
     label_ids[label_ids == -100] = tokenizer.pad_token_id
 
@@ -121,6 +193,7 @@ def compute_metrics(pred:EvalPrediction)->dict:
 
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True) # this approach is faster than a parallelized threadpoolexecutor approach
+    metric = evaluate.load("wer")
     wer = 100 * metric.compute(predictions=pred_str, references=label_str)
 
     return {"wer": wer}
@@ -138,6 +211,9 @@ def batch_decode_parallel(tokenizer, pred_ids, label_ids, skip_special_tokens=Tr
     return list(pred_str), list(label_str)
 
 def compute_chime_metrics(pred:EvalPrediction)->dict:
+    from preprocessing import Paths
+    paths = Paths.get_instance()
+    tokenizer,_,_ = create_tokenizer_model_processor()
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 
@@ -151,7 +227,7 @@ def compute_chime_metrics(pred:EvalPrediction)->dict:
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
     results = {"predictions": pred_str, "labels": label_str}
-    results_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
+    results_directory = paths.prediction_path
     if not os.path.exists(results_directory):
         os.makedirs(results_directory)
     file_path = os.path.join(results_directory, "results.json")
@@ -202,6 +278,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
     return path
 
 def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_slice:Dataset) -> pl.DataFrame:
+    tokenizer,_,_ = create_tokenizer_model_processor()
     predict = trainer.predict(dataset_slice)
     predictions = predict.predictions[0]
     logits = np.argmax(predictions, axis=-1)
@@ -213,6 +290,7 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     return df
 
 def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
+    tokenizer,_,_ = create_tokenizer_model_processor()
     result2 = trainer.predict(test_dataset)
     predictions = result2.predictions
     labels = result2.label_ids
@@ -268,7 +346,7 @@ class SavePeftModelCallback( TrainerCallback ):
             os.remove( pytorch_model_path )
         return control
 
-def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_dataset:Dataset, eval_dataset:Dataset)->Seq2SeqTrainer:
+def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_dataset:Dataset, eval_dataset:Dataset,model, processor)->Seq2SeqTrainer:
     #ID 170
     if run_details.version == "peft":
         trainer = Seq2SeqTrainer(
@@ -294,71 +372,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
     return trainer
-
-script_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Change the current working directory to the directory where whisper_main.py is located
-os.chdir(script_dir)
-os.environ['WANDB_PROJECT'] = 'WHISPER'
-os.environ['WAND_LOG_MODEL'] = 'true'
-torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
-parser = get_parser()
-args = parser.parse_args()
-formated_date = preprocessing.get_formated_date()
-
-run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
-                         train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                         developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD)
-
-assert run_details_valid(run_details)
-features = preprocessing.generate_features(run_details)
-expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
-dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
-tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-breakpoint()
-train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
-transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
-eval_df.to_csv(transcription_csv_path, index=False)
-data_collator = DataCollatorSpeechSeq2SeqWithPadding(
-    processor=processor,
-    decoder_start_token_id=model.config.decoder_start_token_id,
-)
-metric = evaluate.load("wer")
-#train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
-
-training_args = generate_training_args(run_details)
-trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset )
-
-
-processor.save_pretrained(training_args.output_dir)
-#plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
-if run_details.train_state == 'NT':
-    transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
-                                                         run_details=run_details )
-    run_results = visualize_results(transcription_csv_path_trained, run_details)
-    log_run( run_details=run_details, run_results=run_results )
-else:
-    #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-    start_time = time.perf_counter()
-    trainer.train()
-
-    
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-  
-    #model.push_to_hub(peft_model_id)
-    transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
-                                                         run_details=run_details )
-    run_results = visualize_results( transcription_csv_path_trained, run_details )
-
-    plot_loss(trainer, run_details=run_details)
-    plot_WER( trainer, run_details=run_details )
-    log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
-
-    #TODO take it from the mode
-    pass
-
 # significantly faster than pandas dataframe
 
 

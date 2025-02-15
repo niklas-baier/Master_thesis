@@ -593,7 +593,7 @@ class Paths:
 
     def __init__(self, dataset_path=None, dev_path=None, eval_path=None,
                  transcript_dev_path=None, transcript_eval_path=None,
-                 train_path=None, transcript_train_path=None):
+                 train_path=None, transcript_train_path=None, prediction_path = None):
         self.dataset_path = dataset_path
         self.dev_path = dev_path
         self.eval_path = eval_path
@@ -601,10 +601,13 @@ class Paths:
         self.transcript_eval_path = transcript_eval_path
         self.train_path = train_path
         self.transcript_train_path = transcript_train_path
+        self.prediction_path = prediction_path
 
     @classmethod
     def initialize(cls, environment, dataset_name, run_details):
         paths = setup_paths(environment, dataset_name, run_details=run_details)
+        prediction_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
+        paths.append(prediction_directory)
         cls._instance = cls(*paths)
 
     @classmethod

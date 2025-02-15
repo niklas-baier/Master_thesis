@@ -15,7 +15,9 @@ from pathlib import Path
 import os
 import datasets
 import argparse
+import torch
 from datasets import Features
+from functools import cache 
 
 @dataclass
 @final
@@ -280,6 +282,7 @@ get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", ta
 get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe",use_fast=True )
 #ID158
 get_plain_model = partial(AutoModelForSpeechSeq2Seq.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True, attn_implementation="sdpa")
+
 def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.dtype)-> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
     #ID156
 
@@ -322,6 +325,10 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
+
+    global create_tokenizer_model_processor
+    def create_tokenizer_model_processor():
+        return tokenizer, model, processor
     return tokenizer, model, processor
 
 
