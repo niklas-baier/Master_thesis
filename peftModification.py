@@ -67,10 +67,9 @@ def alterative_peft(run_details, model):
     lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "k_proj"])
 
     model.add_adapter(lora_config, adapter_name="adapter_1")
-    num_of_trainable_parameters = sum(p.numel() for p in f.parameters() if p.requires_grad)
+    num_of_trainable_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     run_details.num_of_trainable_parameters = num_of_trainable_parameters
 
-    breakpoint()
 
     return model 
   

@@ -219,12 +219,12 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument( '--data_portion', type=str, choices=["clean-only", "far-only", "all"], required=True )
     parser.add_argument( '--beamforming', type=str, choices=["Y","N"], required=False )
     parser.add_argument('--SWAD', type=bool, required=False)
+    parser.add_argument('--diffusion', type=str, required=False, choices=['Y','N'])
 
 
 
 
     return parser
-
 
 def add_prediction_column(words:pd.Series, labels_trained:pd.Series, temp:pd.Series)-> pd.Series:
     if words == labels_trained:

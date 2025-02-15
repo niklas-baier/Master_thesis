@@ -10,12 +10,13 @@ CUDA_LAUNCH_BLOCKING=1 CUDA_VISIBLE_DEVICES=2 python3 ../whisper_main.py --datas
                    --developer_mode "N" \
                    --augmentation "N" \
                    --additional_tokens "N"\
-                   --run_notes "first try with diffusion_model"\
+                   --run_notes "diffusion_model with deverberation instead of speech enhancement"\
 		   --dataset_evaluation_part "eval"\
 		   --oversampling_clean_data 1\
-                   --data_portion "far-only"\
-		   --beamforming "Y"\
-		   --SWAD False
+                   --data_portion "all"\
+		   --beamforming "N"\
+		   --SWAD False\
+		   --diffusion "Y"
 
 
 
