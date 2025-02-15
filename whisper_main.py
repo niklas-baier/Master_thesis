@@ -1,4 +1,5 @@
 import evaluate
+from absl import flags
 from torchsummary import summary
 import numpy as np 
 import json
@@ -20,7 +21,8 @@ from logrun import log_run
 from test_Whisper import run_details_valid
 from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne
 from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, \
-    get_model_size, get_parser, transcribe_raw, create_tokenizer_model_processor, generate_datasets
+    get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets
+from config import get_parser
 import os
 import torch
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
@@ -292,6 +294,7 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
     return trainer
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Change the current working directory to the directory where whisper_main.py is located
