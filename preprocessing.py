@@ -314,10 +314,13 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     if run_details.beamforming == 'Y':
         beamformed_direc = os.path.join(os.getcwd(), 'beamforming')
         test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-    if FLAGS.flags_diffusion == 'Y':
+    if run_details.diffusion == 'Y':
         assert(run_details.beamforming != 'Y')
         beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
         test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+        beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
+        train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
@@ -435,12 +438,14 @@ def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:F
 from functools import *
 # partial to ensure that the feature extractor has the right arguments
 get_Feature_extractor = partial(WhisperFeatureExtractor.from_pretrained, language='en', task="transcribe" )
+
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
-    from whisper_main import run_details, tokenizer
+    from train import get_cached_tokenizer
+    tokenizer = get_cached_tokenizer()
 
-    feature_extractor = get_Feature_extractor(run_details.model_id)
+    feature_extractor = get_Feature_extractor(FLAGS.model_id)
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
@@ -607,7 +612,7 @@ class Paths:
     def initialize(cls, environment, dataset_name, run_details):
         paths = setup_paths(environment, dataset_name, run_details=run_details)
         prediction_directory = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}")
-        paths.append(prediction_directory)
+        paths = paths + (prediction_directory,)
         cls._instance = cls(*paths)
 
     @classmethod
