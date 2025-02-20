@@ -1,5 +1,5 @@
 import evaluate
-from absl import flags
+from absl import flags, app
 from torchsummary import summary
 import numpy as np 
 import json
@@ -21,7 +21,7 @@ from logrun import log_run
 from test_Whisper import run_details_valid
 from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne
 from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, \
-    get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets
+    get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
 from config import get_parser
 import os
 import torch
@@ -30,9 +30,8 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 import copy 
-
-
-def main():
+from typing import Optional
+def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
@@ -41,19 +40,18 @@ def main():
     torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
     parser = get_parser()
     args = parser.parse_args()
-    formated_date = preprocessing.get_formated_date()
-
+    formated_date = preprocessing.get_formated_date() 
     run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                             train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                            developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD)
+                            developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
 
     assert run_details_valid(run_details)
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+    breakpoint()
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-    breakpoint()
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
     transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
@@ -94,14 +92,12 @@ def main():
         log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
 
         #TODO take it from the mode
-        pass
+    return 
 
 
 
   
 
-if __name__ == "__main__":
-    main()
 
 def get_latest_checkpoint(path):
     # Find all directories matching the pattern checkpoint-{number}
@@ -180,9 +176,10 @@ def get_normal_model(run_details):
     _, model , _ = create_tokenizer_model_processor(copy, torch_dtype=torch.float32)
     return model
 def compute_metrics(pred:EvalPrediction)->dict:
+    from train import _cached_tokenizer
     pred_ids = pred.predictions
     label_ids = pred.label_ids
-    tokenizer,_,_ = create_tokenizer_model_processor()
+    tokenizer = _cached_tokenizer
     # replace -100 with the pad_token_id
     label_ids[label_ids == -100] = tokenizer.pad_token_id
 
@@ -213,7 +210,7 @@ def batch_decode_parallel(tokenizer, pred_ids, label_ids, skip_special_tokens=Tr
 def compute_chime_metrics(pred:EvalPrediction)->dict:
     from preprocessing import Paths
     paths = Paths.get_instance()
-    tokenizer,_,_ = create_tokenizer_model_processor()
+    tokenizer,_,_ = get_cached_components()
     pred_ids = pred.predictions
     label_ids = pred.label_ids
 
@@ -278,7 +275,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
     return path
 
 def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_slice:Dataset) -> pl.DataFrame:
-    tokenizer,_,_ = create_tokenizer_model_processor()
+    tokenizer,_,_ = get_cached_components
     predict = trainer.predict(dataset_slice)
     predictions = predict.predictions[0]
     logits = np.argmax(predictions, axis=-1)
@@ -290,7 +287,7 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     return df
 
 def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
-    tokenizer,_,_ = create_tokenizer_model_processor()
+    tokenizer,_,_ = get_cached_components()
     result2 = trainer.predict(test_dataset)
     predictions = result2.predictions
     labels = result2.label_ids
@@ -368,6 +365,7 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
+            compute_metrics = compute_metrics,
             tokenizer=processor.feature_extractor,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
@@ -380,3 +378,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
 
 
 
+
+if __name__ == "__main__":
+    app.run(main)
