@@ -51,6 +51,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         "data_portion in training" : run_details.data_portion,
         "beamforming": run_details.beamforming,
         "num_trainable_parameters" : run_details.num_trainable_parameters,
+        'diffusion' : run_details.diffusion
 
         # wer far field microphones
         # wer close microphones

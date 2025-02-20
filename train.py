@@ -19,7 +19,7 @@ import torch
 from datasets import Features
 from functools import cache 
 
-@dataclass
+@dataclass(frozen=True)
 @final
 class RunDetails:
     dataset_name: str  #name of the dataset
@@ -41,6 +41,7 @@ class RunDetails:
     beamforming: str = field(default ="N")
     num_trainable_parameters: int = 0
     SWAD: bool = False
+    diffusion: str = field(default="N") 
 
 
 
@@ -282,10 +283,13 @@ get_tokenizer = partial(WhisperTokenizer.from_pretrained, language="English", ta
 get_Processor = partial(AutoProcessor.from_pretrained, language='en', task="transcribe",use_fast=True )
 #ID158
 get_plain_model = partial(AutoModelForSpeechSeq2Seq.from_pretrained,low_cpu_mem_usage=True, use_safetensors=True, attn_implementation="sdpa")
-
+_cached_tokenizer: Optional[WhisperTokenizer] = None
+_cached_model: Optional[AutoModelForSpeechSeq2Seq] = None
+_cached_processor: Optional[AutoProcessor] = None
+@cache
 def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.dtype)-> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
     #ID156
-
+    global _cached_tokenizer, _cached_model, _cached_processor
     if (run_details.checkpoint_path != ""):
         path_of_model = run_details.checkpoint_path
     else:
@@ -325,13 +329,18 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
-
-    global create_tokenizer_model_processor
-    def create_tokenizer_model_processor():
-        return tokenizer, model, processor
+        
+    _cached_tokenizer, _cached_model, _cached_processor = tokenizer, model, processor
     return tokenizer, model, processor
-
-
+def get_cached_components() -> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
+    """
+    Returns the cached components. Raises  a error if called before components' initializiation.
+    """
+    if any(x is None for x in (_cached_tokenizer, _cached_model, _cached_processor)):
+        raise RuntimeError("Components not yet initialized. Must call create_tokenizer_model_processor.")
+    return _cached_tokenizer, _cached_model, _cached_processor
+def get_cached_tokenizer() :
+    return _cached_tokenizer
 def generate_datasets(run_details:RunDetails, features:Features, args:argparse, expanded_df:pd.DataFrame, dev_df:pd.DataFrame, eval_df:pd.DataFrame)-> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
     #ID 160
     from preprocessing import generate_test_features
