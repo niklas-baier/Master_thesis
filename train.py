@@ -289,6 +289,7 @@ _cached_processor: Optional[AutoProcessor] = None
 @cache
 def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.dtype)-> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
     #ID156
+    from transformers import AutoConfig, AutoModel
     global _cached_tokenizer, _cached_model, _cached_processor
     if (run_details.checkpoint_path != ""):
         path_of_model = run_details.checkpoint_path
@@ -296,7 +297,8 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         path_of_model = run_details.model_id
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
-    model = get_plain_model(run_details.model_id, torch_dtype=torch_dtype)
+    breakpoint()
+    model = WhisperForConditionalGeneration.from_pretrained(path_of_model)
 
 
     num_params = sum( p.numel() for p in model.parameters() if p.requires_grad )
@@ -306,13 +308,14 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
     if ("large" or "medium") in run_details.model_id:
         processor = get_Processor(run_details.model_id)
         model.generation_config.language = "English"
+        model.generation_config.forced_decoder_ids = None
         model.generation_config.task = "transcribe"
         model._set_language_and_task( language="en", task="transcribe", is_multilingual=True,
                                       generation_config=model.generation_config )
+        model.config.apply_spec_augment = True
         # model.model_tags /
     else:
         processor = get_Processor(run_details.model_id)
-    model.generation_config.forced_decoder_ids = None
     if run_details.additional_tokens == "Y":
         # define new tokens to add to vocab
         new_tokens = ['[laugh]', '[unintelligible]', '[noise]', ]
@@ -329,6 +332,9 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
+    print("HI")
+    breakpoint()
+
         
     _cached_tokenizer, _cached_model, _cached_processor = tokenizer, model, processor
     return tokenizer, model, processor
