@@ -9,6 +9,7 @@ from preprocessing import get_formated_date
 
 
 def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> None:
+    from whisper_main import FLAGS
     #implementation of ID: 63
     results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_json(results_path)
@@ -51,7 +52,8 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         "data_portion in training" : run_details.data_portion,
         "beamforming": run_details.beamforming,
         "num_trainable_parameters" : run_details.num_trainable_parameters,
-        'diffusion' : run_details.diffusion
+        'diffusion' : run_details.diffusion,
+        "inference_time":  FLAGS.inference_time,
 
         # wer far field microphones
         # wer close microphones
