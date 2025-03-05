@@ -37,7 +37,9 @@ def create_dipco_baseline_latex_table(dipco_df:pd.DataFrame)->None:
     select_relevant_baseline_rows(dipco_df)
     create_vanilla_baseline_latex_table(dipco_df)
     create_peft_latex_table(dipco_df)
-    breakpoint()
+    create_dipco_diffusion_latex_table(dipco_df)
+    return
+  
 
 def create_peft_latex_table(df):
     #df = df.query( 'augmentation == "N"' ) #TODO
@@ -57,6 +59,19 @@ def create_peft_latex_table(df):
     print("peft-all")
     print_baseline_table(all_df)
     return
+
+def create_dipco_diffusion_latex_table(df):
+    df = df.query( 'diffusion == "Y"')
+    no_training_df = df.query( 'Training == "NT"')
+    training_df = df.query( 'Training == "T"')
+    print("diffusion_with training")
+    print_baseline_table(training_df)
+    print("diffusion_without training")
+    print_baseline_table(no_training_df)
+    return
+
+
+
 
 def create_vanilla_baseline_latex_table(df):
     vanilla = df.query( 'Training == "T"' )
