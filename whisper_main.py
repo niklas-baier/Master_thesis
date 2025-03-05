@@ -11,7 +11,6 @@ from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from peft import PeftModel, PeftConfig
 import jiwer
-import numba 
 import evaluation
 from test_Whisper import check_no_missing_values
 import preprocessing
@@ -269,8 +268,20 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
        
 
     else:
+        from faster_whisper import WhisperModel, BatchedInferencePipeline
+        model_size = "distil-large-v3"
+        model = WhisperModel(model_size, device="cuda", compute_type="float16")
+        #breakpoint()
+        #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
+        #texts = [segment.text for segment in segments]
+        #print(texts[0:10])
+        start_time_transcription= time.perf_counter()
         predictions = predict( trainer=trainer, test_dataset=test_dataset )
-    
+        end_time_transcription = time.perf_counter()
+        inference_time = end_time_transcription-start_time_transcription
+        breakpoint()
+        print(inference_time)
+        
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
 
@@ -287,8 +298,45 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     return df
 
 def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
-    tokenizer,_,_ = get_cached_components()
-    result2 = trainer.predict(test_dataset)
+    tokenizer,_,processor = get_cached_components()
+    import time
+    start_time_transcription= time.perf_counter()
+    if 1==1:
+           trainer.model.config.output_hidden_states = True
+           results = []
+           collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+           test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator)
+           prediction_sentences = []
+           labels_list = []
+           model = trainer.model.eval()
+           model = torch.compile(model)
+           for batch in test_dataloader:  # Ensure you have a DataLoader for test_dataset
+                with torch.no_grad():
+                  
+                    #inputs_features_of_batch = processor()
+                    batch.to("cuda")
+                    #outputs = model(**batch, output_hidden_states=True)  # simple forward pass is not sufficient for a acceptable WER
+                    model.config.output_hidden_states = True # return also the hidden states
+                    model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
+                    outputs = model.generate(input_features=batch["input_features"],output_hidden_states=True,return_dict_in_generate=True)
+        
+                    #logits = outputs.logits
+                    #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
+                    predictions = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+                    labels = processor.batch_decode(batch["labels"], skip_special_tokens=True)
+                    #hidden_states = outputs.encoder_last_layer_hidden_state
+                    prediction_sentences.append(predictions)
+                    labels_list.append(labels)
+                    #hidden_states = outputs.hidden_states
+                #results.append(outputs)
+    #trainer.model.generation_config.cache_implementation = "static"
+    #trainer.model.forward = torch.compile(trainer.model.forward, mode="reduce-overhead", fullgraph=True)
+    #breakpoint()
+    #result2 = trainer.predict(test_dataset)
+    end_time_transcription = time.perf_counter()
+    inference_time = end_time_transcription-start_time_transcription
+    print(inference_time)
+    breakpoint()
     predictions = result2.predictions
     labels = result2.label_ids
     decode = lambda data: [tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True) for item in data]
