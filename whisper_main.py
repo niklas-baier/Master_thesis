@@ -53,7 +53,7 @@ def main(argv):
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-    breakpoint()
+  
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
     transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
@@ -74,7 +74,7 @@ def main(argv):
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
-        log_run( run_details=run_details, run_results=run_results )
+        log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
         num_epochs = 5
@@ -82,6 +82,7 @@ def main(argv):
         start_time = time.perf_counter()
         wers = []
         for i in range(num_epochs):
+            print(i)
             trainer.args.max_steps = 200
             
             trainer.train()
@@ -104,7 +105,7 @@ def main(argv):
 
         #plot_loss(trainer, run_details=run_details)
         #plot_WER( trainer, run_details=run_details )
-        log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
+        log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time, results_path=transcription_csv_path_trained)
 
         #TODO take it from the mode
     return 

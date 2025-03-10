@@ -140,6 +140,7 @@ httpx @ file:///croot/httpx_1706887096329/work
 huggingface-hub==0.24.6
 humanize==4.12.1
 hvplot @ file:///croot/hvplot_1715090436541/work
+hydra-core==1.3.2
 hyperlink @ file:///tmp/build/80754af9/hyperlink_1610130746837/work
 idna @ file:///croot/idna_1714398848350/work
 imagecodecs @ file:///croot/imagecodecs_1695064943445/work
@@ -273,7 +274,7 @@ opt_einsum==3.4.0
 optax==0.2.4
 orbax-checkpoint==0.6.4
 overrides @ file:///croot/overrides_1699371140756/work
-packaging @ file:///croot/packaging_1720101850331/work
+packaging==24.2
 pandas @ file:///home/conda/feedstock_root/build_artifacts/pandas_1715897627815/work
 pandocfilters @ file:///opt/conda/conda-bld/pandocfilters_1643405455980/work
 panel @ file:///croot/panel_1718119034739/work
@@ -348,7 +349,7 @@ pytz @ file:///croot/pytz_1713974312559/work
 pyviz-comms @ file:///croot/pyviz_comms_1685030693726/work
 pywavelets @ file:///croot/pywavelets_1705049820073/work
 pyxdg @ file:///tmp/build/80754af9/pyxdg_1603822279816/work
-PyYAML @ file:///croot/pyyaml_1698096049011/work
+PyYAML==6.0.2
 pyzmq @ file:///croot/pyzmq_1705605076900/work
 QDarkStyle @ file:///tmp/build/80754af9/qdarkstyle_1617386714626/work
 qstylizer @ file:///croot/qstylizer_1674008522553/work/dist/qstylizer-0.2.2-py2.py3-none-any.whl

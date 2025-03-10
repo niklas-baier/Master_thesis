@@ -297,7 +297,7 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         path_of_model = run_details.model_id
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
-    breakpoint()
+   
     model = WhisperForConditionalGeneration.from_pretrained(path_of_model)
 
 
@@ -332,8 +332,8 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
-    print("HI")
-    breakpoint()
+
+  
 
         
     _cached_tokenizer, _cached_model, _cached_processor = tokenizer, model, processor

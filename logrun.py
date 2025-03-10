@@ -8,16 +8,17 @@ from latex import create_base_line_latex_tables, create_latex_table, save_latex_
 from preprocessing import get_formated_date
 
 
-def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> None:
-    from whisper_main import FLAGS
+def log_run(run_details:RunDetails, run_results:RunResults, results_path, training_time=0,)-> None:
+   
     #implementation of ID: 63
-    results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
-    results = pd.read_json(results_path)
+    #results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
+    results = pd.read_csv(results_path)
     #TODO
-    results['wer'] = results.apply(lambda row: meeteval.wer.wer.siso.siso_word_error_rate(row['predictions'], row['labels']), axis=1)
+
+    results['wer'] = results.apply(lambda row: meeteval.wer.wer.siso.siso_word_error_rate(row['results'], row['labels_trained']), axis=1)
     results['only'] = results.apply(lambda row: row['wer'].error_rate, axis=1)
     run_average_wer = results['only'].mean()
-    results['cer'] = results.apply(lambda row: cer(reference=row['predictions'], hypothesis=row['labels']), axis=1)
+    results['cer'] = results.apply(lambda row: cer(reference=row['results'], hypothesis=row['labels_trained']), axis=1)
     run_average_cer = results['cer'].mean()
     if results.shape[0] > 100:
         boxplot_wer( results )
@@ -53,7 +54,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, training_time=0)-> N
         "beamforming": run_details.beamforming,
         "num_trainable_parameters" : run_details.num_trainable_parameters,
         'diffusion' : run_details.diffusion,
-        "inference_time":  FLAGS.inference_time,
+        "inference_time": 0,
 
         # wer far field microphones
         # wer close microphones

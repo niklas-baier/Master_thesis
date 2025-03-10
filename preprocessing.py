@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from absl import flags
-from config import FLAGS 
+
 import glob
 from datetime import datetime
 import re
