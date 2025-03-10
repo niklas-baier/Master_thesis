@@ -107,7 +107,7 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "logging_dir": './logs',
         "gradient_accumulation_steps": 1,
         "gradient_checkpointing": True,
-        "evaluation_strategy": "steps",
+        "evaluation_strategy": "no",
         "per_device_eval_batch_size": per_device_eval_batch_size,
         "predict_with_generate": True,
         "save_steps": save_steps,

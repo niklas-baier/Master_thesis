@@ -1,4 +1,5 @@
 import evaluate
+from tqdm.auto import tqdm 
 from absl import flags, app
 from torchsummary import summary
 import numpy as np 
@@ -24,6 +25,7 @@ from train import RunDetails, add_prediction_column, generate_training_args, Dat
 from config import get_parser
 import os
 import torch
+from torch import optim
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from torch.utils.data import DataLoader, Subset 
@@ -51,6 +53,7 @@ def main(argv):
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
+    breakpoint()
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
     transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
@@ -74,8 +77,20 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
+        num_epochs = 5
+        trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
-        trainer.train()
+        wers = []
+        for i in range(num_epochs):
+            trainer.args.max_steps = 200
+            
+            trainer.train()
+            validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
+            test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation)) 
+            df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
+            mean_wer = df['wer'].mean()
+            wers.append(mean_wer)
+
 
         
         end_time = time.perf_counter()
@@ -84,10 +99,11 @@ def main(argv):
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
+        breakpoint()
         run_results = visualize_results( transcription_csv_path_trained, run_details )
 
-        plot_loss(trainer, run_details=run_details)
-        plot_WER( trainer, run_details=run_details )
+        #plot_loss(trainer, run_details=run_details)
+        #plot_WER( trainer, run_details=run_details )
         log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
 
         #TODO take it from the mode
@@ -251,8 +267,9 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
    
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
-       model = get_peft_model(trainer, run_details)
-       trainer.args.model = model
+       #model = get_peft_model(trainer, run_details)
+       predictions = predict(trainer=trainer,test_dataset=test_dataset)
+
        '''
        total_size = len(test_dataset)
        part_size = total_size // 20
@@ -263,7 +280,6 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
        predictions = [predict_logits_and_get_strings_from_them(trainer,x) for x in lazy_parts]
        predictions = pl.concat(predictions, how='vertical')
        print("hi")'''
-       predictions = predict(trainer=trainer, test_dataset=test_dataset)
 
        
 
@@ -279,11 +295,27 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         predictions = predict( trainer=trainer, test_dataset=test_dataset )
         end_time_transcription = time.perf_counter()
         inference_time = end_time_transcription-start_time_transcription
-        breakpoint()
         print(inference_time)
         
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
+
+def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) :
+    if run_details.version == "peft":
+        predictions = predict(trainer=trainer, test_dataset=test_dataset)
+
+    else:
+        model_size = "distil-large-v3"
+        model = WhisperModel(model_size, device="cuda", compute_type="float16")
+        start_time_transcription = timer.perf_counter()
+        predictions = predict(trainer=trainer, test_dataset = test_dataset)
+        end_time_transcription  = time.perf_counter()
+        inference_time = end_time_transcription - start_time_transcription
+        print(inference_time)
+    return predictions
+
+def validate_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) :
+    return transcribe_helper(test_dataset=test_dataset,trainer=trainer, run_details=run_details)
 
 def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_slice:Dataset) -> pl.DataFrame:
     tokenizer,_,_ = get_cached_components
@@ -305,24 +337,23 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
            trainer.model.config.output_hidden_states = True
            results = []
            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-           test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator)
+           test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
            prediction_sentences = []
            labels_list = []
            model = trainer.model.eval()
            model = torch.compile(model)
-           for batch in test_dataloader:  # Ensure you have a DataLoader for test_dataset
+           for batch in tqdm(test_dataloader, desc= "Evaluating batches"):  # Ensure you have a DataLoader for test_dataset
                 with torch.no_grad():
-                  
-                    #inputs_features_of_batch = processor()
                     batch.to("cuda")
+                    #inputs_features_of_batch = processor()
                     #outputs = model(**batch, output_hidden_states=True)  # simple forward pass is not sufficient for a acceptable WER
-                    model.config.output_hidden_states = True # return also the hidden states
-                    model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
-                    outputs = model.generate(input_features=batch["input_features"],output_hidden_states=True,return_dict_in_generate=True)
+                    #model.config.output_hidden_states = True # return also the hidden states
+                    #model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
+                    outputs = model.generate(input_features=batch["input_features"])
         
                     #logits = outputs.logits
                     #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
-                    predictions = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+                    predictions = processor.batch_decode(outputs, skip_special_tokens=True)
                     labels = processor.batch_decode(batch["labels"], skip_special_tokens=True)
                     #hidden_states = outputs.encoder_last_layer_hidden_state
                     prediction_sentences.append(predictions)
@@ -336,15 +367,20 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
     end_time_transcription = time.perf_counter()
     inference_time = end_time_transcription-start_time_transcription
     print(inference_time)
-    breakpoint()
-    predictions = result2.predictions
-    labels = result2.label_ids
-    decode = lambda data: [tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True) for item in data]
-    decoded_sentences = decode(predictions)
-    decoded_labels = decode(labels)
-    df = create_polars_df(decoded_sentences,decoded_labels)
+    predictions_flattened = flatten_list_once(prediction_sentences)
+    labels_flattened = flatten_list_once(labels_list)
+
+    #predictions = result2.predictions
+    #labels = result2.label_ids
+    #decode = lambda data: [tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True) for item in data]
+    #decoded_sentences = decode(predictions)
+    #decoded_labels = decode(labels)
+    #df = create_polars_df(decoded_sentences,decoded_labels)
+    df = create_polars_df(predictions_flattened, labels_flattened)
     return df
 
+def flatten_list_once(list_to_be_flattened:list)-> list:
+     return  [x for xs in list_to_be_flattened for x in xs]
 
 
 def create_polars_df(decoded_sentences:list,decoded_labels:list)->pl.DataFrame:

@@ -96,7 +96,7 @@ def visualize_wer(grouped, model_type):
     plt.title( f'WER of {model_name} on the {(dataset_name := (model_type[1]))} dataset' )
 
     plt.savefig( f'Figures/{(partition_type := (model_type[0]))} bar_plot.png', format='png' )
-    wandb.log( {f"{dataset_name}_{model_name}": wandb.Image( plt )} )
+    #wandb.log( {f"{dataset_name}_{model_name}": wandb.Image( plt )} )
     dict_of_wers = {k: v for k, v in zip( names, wers )}
     return dict_of_wers
 
