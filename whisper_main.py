@@ -74,10 +74,10 @@ def main(argv):
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
-        log_run( run_details=run_details, run_results=run_results )
+        log_run( run_details=run_details, run_results=run_results,results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 5
+        num_epochs = 2
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
@@ -104,7 +104,7 @@ def main(argv):
 
         #plot_loss(trainer, run_details=run_details)
         #plot_WER( trainer, run_details=run_details )
-        log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time)
+        log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time, results_path=transcription_csv_path_trained)
 
         #TODO take it from the mode
     return 

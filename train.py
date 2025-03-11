@@ -108,7 +108,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "gradient_accumulation_steps": 1,
         "gradient_checkpointing": True,
         "evaluation_strategy": "no",
-        "per_device_eval_batch_size": per_device_eval_batch_size,
         "predict_with_generate": True,
         "save_steps": save_steps,
         "eval_steps": save_steps,
@@ -127,7 +126,8 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     # Adjustments for PEFT version
     if run_details.version == "peft":
         peft_args = {   
-            "per_device_train_batch_size": 4,
+            "per_device_train_batch_size": train_batch_size*2,
+            "per_device_eval_batch_size": per_device_eval_batch_size * 4, 
             "learning_rate": 1e-4,
             "warmup_steps": 2,
             "max_steps": 2000,
@@ -141,11 +141,11 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     else:
         non_peft_args = {
             "per_device_train_batch_size": train_batch_size,
+            "per_device_eval_batch_size": per_device_eval_batch_size,
             "learning_rate": 1e-5,
             "warmup_steps": 0,
             "max_steps": max_steps,
             "generation_max_length": 200,
-            "load_best_model_at_end": True,
             "run_name": run_name,
         }
         # Merge base and non-PEFT-specific arguments
