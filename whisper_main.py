@@ -49,7 +49,6 @@ def main(argv):
     assert run_details_valid(run_details)
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-    breakpoint()
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
