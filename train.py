@@ -95,7 +95,7 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 200
+    max_steps = 100
     loggings_steps = 100
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
@@ -118,7 +118,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "report_to": 'wandb',
         "metric_for_best_model": "wer",
         "greater_is_better": False,
-        "save_total_limit": 5,
         "dataloader_num_workers": 8,
         "dataloader_pin_memory": True
     }
@@ -126,12 +125,12 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     # Adjustments for PEFT version
     if run_details.version == "peft":
         peft_args = {   
-            "per_device_train_batch_size": train_batch_size*2,
-            "per_device_eval_batch_size": per_device_eval_batch_size * 4, 
+            "per_device_train_batch_size": train_batch_size*4,
+            "per_device_eval_batch_size": per_device_eval_batch_size*4,
             "learning_rate": 1e-4,
             "warmup_steps": 2,
-            "max_steps": 2000,
-            "generation_max_length": 128,
+            "max_steps": 200,
+            "generation_max_length": 200,
             "torch_empty_cache_steps": 4,
             "label_names": ["labels"],
 
@@ -297,7 +296,7 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         path_of_model = run_details.model_id
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
-    breakpoint()
+   
     model = WhisperForConditionalGeneration.from_pretrained(path_of_model)
 
 
@@ -332,8 +331,8 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         model = alterative_peft(run_details, model)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
-    print("HI")
-    breakpoint()
+
+  
 
         
     _cached_tokenizer, _cached_model, _cached_processor = tokenizer, model, processor

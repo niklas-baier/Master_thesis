@@ -49,11 +49,10 @@ def main(argv):
     assert run_details_valid(run_details)
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-    breakpoint()
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-    breakpoint()
+  
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
     transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
@@ -74,14 +73,15 @@ def main(argv):
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
-        log_run( run_details=run_details, run_results=run_results,results_path=transcription_csv_path_trained )
+        log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 2
+        num_epochs = 1
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
         for i in range(num_epochs):
+            print(i)
             trainer.args.max_steps = 200
             
             trainer.train()
@@ -284,9 +284,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
        
 
     else:
-        from faster_whisper import WhisperModel, BatchedInferencePipeline
+ 
         model_size = "distil-large-v3"
-        model = WhisperModel(model_size, device="cuda", compute_type="float16")
         #breakpoint()
         #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
         #texts = [segment.text for segment in segments]
@@ -306,8 +305,8 @@ def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_detai
 
     else:
         model_size = "distil-large-v3"
-        model = WhisperModel(model_size, device="cuda", compute_type="float16")
-        start_time_transcription = timer.perf_counter()
+  
+        start_time_transcription = time.perf_counter()
         predictions = predict(trainer=trainer, test_dataset = test_dataset)
         end_time_transcription  = time.perf_counter()
         inference_time = end_time_transcription - start_time_transcription
@@ -451,7 +450,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             data_collator=data_collator,
             compute_metrics = compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
     return trainer
 # significantly faster than pandas dataframe
