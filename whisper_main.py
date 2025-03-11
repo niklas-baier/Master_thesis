@@ -76,7 +76,7 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 5
+        num_epochs = 1
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
@@ -284,9 +284,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
        
 
     else:
-        from faster_whisper import WhisperModel, BatchedInferencePipeline
+ 
         model_size = "distil-large-v3"
-        model = WhisperModel(model_size, device="cuda", compute_type="float16")
         #breakpoint()
         #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
         #texts = [segment.text for segment in segments]
@@ -306,8 +305,8 @@ def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_detai
 
     else:
         model_size = "distil-large-v3"
-        model = WhisperModel(model_size, device="cuda", compute_type="float16")
-        start_time_transcription = timer.perf_counter()
+  
+        start_time_transcription = time.perf_counter()
         predictions = predict(trainer=trainer, test_dataset = test_dataset)
         end_time_transcription  = time.perf_counter()
         inference_time = end_time_transcription - start_time_transcription
@@ -451,7 +450,6 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             data_collator=data_collator,
             compute_metrics = compute_metrics,
             tokenizer=processor.feature_extractor,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
             )
     return trainer
 # significantly faster than pandas dataframe

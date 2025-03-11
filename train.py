@@ -95,7 +95,7 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 200
+    max_steps = 100
     loggings_steps = 100
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
@@ -108,7 +108,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "gradient_accumulation_steps": 1,
         "gradient_checkpointing": True,
         "evaluation_strategy": "no",
-        "per_device_eval_batch_size": per_device_eval_batch_size,
         "predict_with_generate": True,
         "save_steps": save_steps,
         "eval_steps": save_steps,
@@ -119,7 +118,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "report_to": 'wandb',
         "metric_for_best_model": "wer",
         "greater_is_better": False,
-        "save_total_limit": 5,
         "dataloader_num_workers": 8,
         "dataloader_pin_memory": True
     }
@@ -127,11 +125,12 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     # Adjustments for PEFT version
     if run_details.version == "peft":
         peft_args = {   
-            "per_device_train_batch_size": 4,
+            "per_device_train_batch_size": train_batch_size*4,
+            "per_device_eval_batch_size": per_device_eval_batch_size*4,
             "learning_rate": 1e-4,
             "warmup_steps": 2,
-            "max_steps": 2000,
-            "generation_max_length": 128,
+            "max_steps": 200,
+            "generation_max_length": 200,
             "torch_empty_cache_steps": 4,
             "label_names": ["labels"],
 
@@ -141,11 +140,11 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     else:
         non_peft_args = {
             "per_device_train_batch_size": train_batch_size,
+            "per_device_eval_batch_size": per_device_eval_batch_size,
             "learning_rate": 1e-5,
             "warmup_steps": 0,
             "max_steps": max_steps,
             "generation_max_length": 200,
-            "load_best_model_at_end": True,
             "run_name": run_name,
         }
         # Merge base and non-PEFT-specific arguments
