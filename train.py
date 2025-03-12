@@ -95,8 +95,8 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
-    max_steps = 100
-    loggings_steps = 100
+    max_steps = 200
+    loggings_steps = 200
     save_steps = loggings_steps
     output_dir = f'trained_models/{run_details.task}/{run_details.dataset_name}/{run_details.version}/{run_details.model_id}'
     run_name = f'{run_details.task}_{run_details.dataset_name}_{run_details.version}_{run_details.model_id}'
@@ -125,13 +125,13 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     # Adjustments for PEFT version
     if run_details.version == "peft":
         peft_args = {   
-            "per_device_train_batch_size": train_batch_size*4,
-            "per_device_eval_batch_size": per_device_eval_batch_size*4,
+            "per_device_train_batch_size": train_batch_size*2,
+            "per_device_eval_batch_size": per_device_eval_batch_size*2,
             "learning_rate": 1e-4,
             "warmup_steps": 2,
             "max_steps": 200,
             "generation_max_length": 200,
-            "torch_empty_cache_steps": 4,
+            "torch_empty_cache_steps": 2,
             "label_names": ["labels"],
 
         }

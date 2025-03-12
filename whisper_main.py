@@ -36,6 +36,7 @@ def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ['WANDB_PROJECT'] = 'WHISPER'
     os.environ['WAND_LOG_MODEL'] = 'true'
     torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
@@ -76,20 +77,32 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 1
+        num_epochs = 30
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
+        min_wer = 5
+        counter_since_last_min = 0
         for i in range(num_epochs):
             print(i)
             trainer.args.max_steps = 200
             
             trainer.train()
             validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
+            torch.cuda.empty_cache()
             test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation)) 
             df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
             mean_wer = df['wer'].mean()
             wers.append(mean_wer)
+            if(mean_wer < min_wer):
+                torch.save(trainer.model.state_dict(), f'min_training.pth')
+                counter_since_last_min = 0
+                torch.cuda.empty_cache()
+            else:
+                counter_since_last_min +=1 
+            if counter_since_last_min >4:
+                break
+           
 
 
         

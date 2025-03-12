@@ -14,7 +14,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, results_path, traini
     #results_path = str(f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}/results.json")
     results = pd.read_csv(results_path)
     #TODO
-
+    results['results'] = results['results'].fillna('error')
     results['wer'] = results.apply(lambda row: meeteval.wer.wer.siso.siso_word_error_rate(row['results'], row['labels_trained']), axis=1)
     results['only'] = results.apply(lambda row: row['wer'].error_rate, axis=1)
     run_average_wer = results['only'].mean()
