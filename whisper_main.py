@@ -19,7 +19,7 @@ from datasets import Dataset
 import pandas as pd
 from logrun import log_run
 from test_Whisper import run_details_valid
-from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne
+from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne, plot_validation_wer
 from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, \
     get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
 from config import get_parser
@@ -50,7 +50,9 @@ def main(argv):
     assert run_details_valid(run_details)
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+    breakpoint()
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+    breakpoint()
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
   
@@ -77,15 +79,16 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 30
+        num_epochs = 3
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
         min_wer = 5
         counter_since_last_min = 0
+        path_of_best_model = f'min_training.pth'
         for i in range(num_epochs):
             print(i)
-            trainer.args.max_steps = 200
+            trainer.args.max_steps = 400
             
             trainer.train()
             validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
@@ -95,7 +98,7 @@ def main(argv):
             mean_wer = df['wer'].mean()
             wers.append(mean_wer)
             if(mean_wer < min_wer):
-                torch.save(trainer.model.state_dict(), f'min_training.pth')
+                torch.save(trainer.model.state_dict(), path_of_best_model)
                 counter_since_last_min = 0
                 torch.cuda.empty_cache()
             else:
@@ -103,11 +106,11 @@ def main(argv):
             if counter_since_last_min >4:
                 break
            
-
-
-        
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
+        breakpoint()
+        best_model = torch.load(path_of_best_model)
+        trainer.model = best_model
     
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,

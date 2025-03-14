@@ -64,7 +64,7 @@ def alterative_peft(run_details, model):
     config = LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")#layers_to_transform=[0,1]
 
     #model = get_peft_model(model, config)
-    lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "k_proj"])
+    lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "v_proj", "k_proj"] )#target_modules=["q_proj", "k_proj"]
 
     model.add_adapter(lora_config, adapter_name="adapter_1")
     num_of_trainable_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)

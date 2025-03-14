@@ -17,7 +17,15 @@ from evaluation import  analysis_special_tokens
 from preprocessing import get_formated_date
 from train import RunResults, transcribe_audio
 
-
+def plot_validation_wer(list_of_wers,epochs, steps_per_epoch):
+    epochs = list(range(0, steps_per_epoch*epochs, steps_per_epoch))
+    plt.figure(figsize=(10,6))
+    plt.plot(epochs, list_of_wers, marker= 'o',linestyle = '-',color = 'b', label='WER')
+    plt.title('Word Error Rate (WER) Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Word Error Rate (WER)')
+    plt.grid(True)
+    plt.savefig('wer_plot.png')
 
 def plot_loss(trainer, run_details):
     #
