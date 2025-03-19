@@ -46,7 +46,6 @@ def create_peft_latex_table(df):
     #df = df.query( 'oversampling == 1' )
    
     vanilla = df.query( 'Training_version == "peft"' )
-    breakpoint()
 
     #separate after each data portion in training
     far_away_df = vanilla.query('`data_portion in training` == "far-only"')

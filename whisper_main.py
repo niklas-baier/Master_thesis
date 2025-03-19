@@ -54,6 +54,7 @@ def main(argv):
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     breakpoint()
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+    
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
   
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
@@ -73,6 +74,7 @@ def main(argv):
     processor.save_pretrained(training_args.output_dir)
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
     if run_details.train_state == 'NT':
+        #TODO
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
@@ -115,7 +117,6 @@ def main(argv):
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
-        breakpoint()
         run_results = visualize_results( transcription_csv_path_trained, run_details )
 
         #plot_loss(trainer, run_details=run_details)
@@ -197,7 +198,6 @@ def get_top_lora_paths(adapter_path,df):
    steps = [ steps for (_,steps) in zipped[:3]] # get first 3 steps 
    second_best = adapter_path.replace(str(steps[0]),str(steps[1]))
    third_best = adapter_path.replace(str(steps[0]),str(steps[2]))
-   breakpoint()
    return second_best, third_best
 
 
@@ -349,7 +349,7 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
     import time
     start_time_transcription= time.perf_counter()
     if 1==1:
-           trainer.model.config.output_hidden_states = True
+           #trainer.model.config.output_hidden_states = True
            results = []
            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
            test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )

@@ -67,6 +67,10 @@ def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str
             dataset_path = f'{bw_workplace_path}/Dipco'
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
                 dataset_path=dataset_path)
+            if run_details.run_notes =='facebook denoising':
+                eval_path = '/pfs/work7/workspace/scratch/uhicv-blah/facebook_denoiser/data/eval/testable_results'
+            if run_details.run_notes == 'noise reduce':
+                eval_path = '/pfs/work7/workspace/scratch/uhicv-blah/noise_reduce/Dipco/eval'
             if run_details.dataset_evaluation_part == "dev":
                 dev_path, eval_path = eval_path,dev_path
                 transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path
@@ -308,18 +312,20 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     train_dataframe = set_data_portion_of_training( run_details, train_dataframe )
 
     if run_details.augmentation == 'Y':
-        breakpoint()
-        # only take close micorphone samples with no background music
+        #TODO only take close micorphone samples with no background music
         test_dataframe = add_noise_paths(test_dataframe)
     if run_details.beamforming == 'Y':
         beamformed_direc = os.path.join(os.getcwd(), 'beamforming')
         test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
     if run_details.diffusion == 'Y':
         assert(run_details.beamforming != 'Y')
-        beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
-        test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-        beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
-        train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+        if run_details.environment == "cluster":
+            beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
+            test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+            beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
+            train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+        if run_details.environment == "bwcluster":
+            pass
 
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
@@ -357,6 +363,10 @@ def dipco_split_sessions(dataframe:pd.DataFrame)->tuple[pd.DataFrame, pd.DataFra
     #Implementation of ID 143
     session_ids = dataframe['session_id'].unique()
     eval_session = session_ids[0]
+    if 'S03' in session_ids:# necessary becase the unique function does not reqturn the same across devices: to compare with results on IAR-gpu 
+        eval_session = 'S03'
+    if 'S04' in session_ids:
+        eval_session = 'S04'
     eval_dataframe = dataframe[dataframe['session_id'] == eval_session]
     train_dataframe = dataframe[dataframe['session_id'] != eval_session]
     return train_dataframe, eval_dataframe
@@ -442,11 +452,11 @@ get_Feature_extractor = partial(WhisperFeatureExtractor.from_pretrained, languag
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
-    from train import get_cached_tokenizer
-    tokenizer = get_cached_tokenizer()
+    from train import get_cached_tokenizer, get_cached_components
+    tokenizer,_,processor = get_cached_components()
 
-    feature_extractor = get_Feature_extractor(FLAGS.model_id)
 
+    feature_extractor = processor.feature_extractor
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
     input = waveform.squeeze().numpy()
@@ -466,12 +476,10 @@ def prepare_noisedataset_seq2seq(batch):
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
-    breakpoint()
-    # overlay the audioforms
+    #TODO overlay the audioforms
 
     waveform = augmentations.apply_noises(filepath_original_sound=batch["file_path"],filepath_synthetic_noise=batch["filepath_noise"])
     #TODO shape is 3,43453000
-    breakpoint()
 
     input = waveform
     batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]
