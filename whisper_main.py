@@ -2,7 +2,6 @@ import evaluate
 import einops
 from tqdm.auto import tqdm 
 from absl import flags, app
-from torchsummary import summary
 import numpy as np 
 import json
 import glob 
@@ -11,7 +10,6 @@ import polars as pl
 import time
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
-from peft import PeftModel, PeftConfig
 import jiwer
 import evaluation
 from test_Whisper import check_no_missing_values
@@ -31,7 +29,8 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
-import copy 
+import copy
+import torchaudio
 from typing import Optional
 def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,9 +52,10 @@ def main(argv):
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
-    breakpoint()
+    all = [expanded_df, dev_df, eval_df]
+    all_df = pd.concat(all).reset_index(drop=True)
+    #generate_audio_only(all_df)
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-  
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
     transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
     eval_df.to_csv(transcription_csv_path, index=False)
@@ -73,6 +73,7 @@ def main(argv):
     processor.save_pretrained(training_args.output_dir)
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
     if run_details.train_state == 'NT':
+        #TODO
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
@@ -123,6 +124,28 @@ def main(argv):
         #TODO take it from the mode
     return 
 
+def generate_audio_only(all_df):
+    for i in range(all_df.shape[0]):
+        base_path = '/pfs/work7/workspace/scratch/uhicv-blah/just_the_data/'
+        dataset_path = os.path.join(base_path,run_details.dataset_name)
+        target_directory = os.path.join(dataset_path, run_details.dataset_evaluation_part)
+        filepath = all_df.iloc[i]['file_path']
+        start_frame = all_df.iloc[i]['startframe']
+        num_frames = all_df.iloc[i]['num_frames']
+        wav,sr = torchaudio.load(filepath,frame_offset=start_frame,num_frames=num_frames)
+        file_prefix = os.path.basename(filepath)[:4]
+        target_path = os.path.join(target_directory, f'{file_prefix}{i}.wav')
+        torchaudio.save(target_path, wav, sr)
+        if i == 1:
+            alldf_path = os.path.join(target_directory,'df.csv')
+            #all_df.to_csv(alldf_path)
+            old_df = pd.read_csv(alldf_path)
+            for row_num in tqdm(range(all_df.shape[0])):
+                if(all_df['file_path'][row_num] != old_df['file_path'][row_num]):
+                if(all_df['num_frames'][row_num] != old_df['num_frames'][row_num]):
+                if(all_df['startframe'][row_num] != old_df['startframe'][row_num]):
+                if(all_df['words'][row_num] != old_df['words'][row_num]):
+    return
 
 
   

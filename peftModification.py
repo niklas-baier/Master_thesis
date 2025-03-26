@@ -3,7 +3,6 @@ import torch
 import os
 # Define LoRA Config
 # Print out all the module names in the model
-import bitsandbytes as bnb
 from transformers import WhisperForConditionalGeneration
 
 

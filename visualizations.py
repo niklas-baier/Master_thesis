@@ -323,7 +323,7 @@ def plot_tsne(trainer, test_dataset, torch_dtype, run_details, processor):
     hidden_states = outputs.hidden_states  # A tuple of hidden states from all layers
     # Get the last hidden state (from the last layer)
     last_hidden_state = hidden_states[-1]  # Shape: (batch_size, seq_len, hidden_size)
-    breakpoint()
+    #TODO
 
     random_df = create_720_pairs( test_dataset[0] )
     with torch.no_grad():
@@ -338,8 +338,7 @@ def create_720_pairs(eval_df):
     # get 720 random samples
 
     p_samples = get_p_samples( filtered_df )
-    breakpoint()
-    # assert that there is a corresponding U value
+    #TODO assert that there is a corresponding U value
 
     p_samples, u_samples = get_corresponding_U_values( p_samples )
 

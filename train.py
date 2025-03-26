@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import final, Final
+from typing import final, Final, Optional, Tuple
 import pandas as pd
 from transformers import Seq2SeqTrainingArguments, WhisperTokenizer, TrainerCallback, pipeline, AutoProcessor, EarlyStoppingCallback, AutoModelForSpeechSeq2Seq
 from tqdm import tqdm
