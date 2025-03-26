@@ -306,9 +306,7 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     #train_dataframe,test_dataframe = train_test_split(dataframe, test_size=0.05, random_state=42)
     train_dataframe,test_dataframe = dipco_split_sessions(dataframe)
     train_dataframe = set_data_portion_of_training( run_details, train_dataframe )
-
     if run_details.augmentation == 'Y':
-        breakpoint()
         # only take close micorphone samples with no background music
         test_dataframe = add_noise_paths(test_dataframe)
     if run_details.beamforming == 'Y':
@@ -320,7 +318,9 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
         test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
         beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
         train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-
+    test_dataframe['try'] = test_dataframe.index
+    test_dataframe = test_dataframe.sort_values(by=['file_path', 'try'], ascending=[True, True])
+    test_dataframe = test_dataframe.drop(columns = ['try'])
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
@@ -442,10 +442,10 @@ get_Feature_extractor = partial(WhisperFeatureExtractor.from_pretrained, languag
 def prepare_dataset_seq2seq(batch):
     # load and resample audio data from 48 to 16kHz
 
-    from train import get_cached_tokenizer
-    tokenizer = get_cached_tokenizer()
+    from train import get_cached_tokenizer, get_cached_components
+    tokenizer,_, processor= get_cached_components()
 
-    feature_extractor = get_Feature_extractor(FLAGS.model_id)
+    feature_extractor = processor.feature_extractor
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
@@ -466,12 +466,10 @@ def prepare_noisedataset_seq2seq(batch):
 
     waveform, sample_rate = torchaudio.load(batch["file_path"], frame_offset=batch["startframe"],
                                             num_frames=batch["num_frames"])
-    breakpoint()
     # overlay the audioforms
 
     waveform = augmentations.apply_noises(filepath_original_sound=batch["file_path"],filepath_synthetic_noise=batch["filepath_noise"])
     #TODO shape is 3,43453000
-    breakpoint()
 
     input = waveform
     batch["input_features"] = feature_extractor(input, sampling_rate=sample_rate).input_features[0]

@@ -1,4 +1,5 @@
 import evaluate
+import einops
 from tqdm.auto import tqdm 
 from absl import flags, app
 from torchsummary import summary
@@ -50,10 +51,9 @@ def main(argv):
     assert run_details_valid(run_details)
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-    breakpoint()
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
-    breakpoint()
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+    breakpoint()
     tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
   
     train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
@@ -108,14 +108,12 @@ def main(argv):
            
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        breakpoint()
         best_model = torch.load(path_of_best_model)
         trainer.model = best_model
     
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
-        breakpoint()
         run_results = visualize_results( transcription_csv_path_trained, run_details )
 
         #plot_loss(trainer, run_details=run_details)
@@ -197,7 +195,6 @@ def get_top_lora_paths(adapter_path,df):
    steps = [ steps for (_,steps) in zipped[:3]] # get first 3 steps 
    second_best = adapter_path.replace(str(steps[0]),str(steps[1]))
    third_best = adapter_path.replace(str(steps[0]),str(steps[2]))
-   breakpoint()
    return second_best, third_best
 
 
@@ -306,11 +303,66 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
         #texts = [segment.text for segment in segments]
         #print(texts[0:10])
+        breakpoint()
+        hidden_states = get_hidden_states(trainer=trainer, test_dataset = test_dataset)
+        breakpoint()
+        from sklearn.manifold import TSNE
+        import matplotlib.pyplot as plt
+        tsne = TSNE(n_components=2, random_state=42)
+        tsne_results = tsne.fit_transform(hidden_states)
+        plt.figure(figsize=(10, 8))
+        step_size = 1127
+        alpha,beta,gamma,delta, epsilon = list(range(step_size,6*step_size,step_size))
+        plt.scatter(tsne_results[:alpha, 0], tsne_results[:alpha, 1], 
+                            color='r', alpha=0.7, s=40, label='Persons')
+        plt.scatter(tsne_results[alpha:beta, 0], tsne_results[alpha:beta, 1], 
+                            color='b', alpha=0.7, s=40, label='Microphone 1')
+        plt.scatter(tsne_results[beta:gamma, 0], tsne_results[beta:gamma, 1], 
+                            color='g', alpha=0.7, s=40, label='Microphone 2')
+        plt.scatter(tsne_results[gamma:delta, 0], tsne_results[gamma:delta, 1], 
+                            color='y', alpha=0.7, s=40, label='Microphone 3')
+        plt.scatter(tsne_results[delta:epsilon, 0], tsne_results[delta:epsilon, 1], 
+                            color='k', alpha=0.7, s=40, label='Microphone 4')
+        plt.scatter(tsne_results[epsilon:, 0], tsne_results[epsilon:, 1], 
+                            color='c', alpha=0.7, s=40, label='Microphone 5')
+
+        # Plot remai
+
+        # Plot remai
+
+        # Plot remai
+
+        # Plot remai
+
+        # Plot remai
+
+        # Plot remai
+        plt.title('t-SNE Visualization of Whisper Hidden States')
+        plt.xlabel('t-SNE dimension 1')
+        plt.ylabel('t-SNE dimension 2')
+        plt.grid(True, linestyle='--', alpha=0.7)
+
+        # Optional: If you have labels, you can color the points accordingly
+        # colors = ['r', 'g', 'b', ...]  # Define colors for each class
+        # for i, label in enumerate(labels):
+        #     indices = np.where(np.array(labels) == label)[0]
+        #     plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], 
+        #                 c=colors[i % len(colors)], label=label, alpha=0.7, s=40)
+        # plt.legend()
+
+        # Add text annotations (optional)
+        # for i, (x, y) in enumerate(tsne_results):
+        #     plt.annotate(str(i), (x, y), fontsize=8)
+
+        plt.tight_layout()
+        plt.savefig('whisper_tsne_visualization.png', dpi=300)
+
         start_time_transcription= time.perf_counter()
         predictions = predict( trainer=trainer, test_dataset=test_dataset )
         end_time_transcription = time.perf_counter()
         inference_time = end_time_transcription-start_time_transcription
         print(inference_time)
+        breakpoint()
         
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
@@ -343,18 +395,43 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     result_labels = map_to_strings(predict.label_ids)
     df = pl.DataFrame({'predictions':result_predictions, 'labels': result_labels})
     return df
+def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset) :
+    tokenizer,_,processor = get_cached_components()
+    hidden_states = []
+    collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+    test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
+    model = trainer.model.eval()
+    model = torch.compile(model)
+    model.config.output_hidden_states = True # return also the hidden states#
+    model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
+
+    for batch in tqdm(test_dataloader, desc = "tsne-visualization"):
+        with torch.no_grad():
+            batch.to("cuda")
+            outputs = model.generate(input_features=batch["input_features"], output_hidden_states=True)
+            hidden_states.append(list(outputs.decoder_hidden_states[-1])[-1])
+            del outputs
+    hidden_states_np = []
+    for tensor in hidden_states:
+        flattened_tensor = einops.rearrange(tensor, 'b 1 d -> b d') 
+        np_array = flattened_tensor.detach().cpu().numpy()
+        hidden_states_np.append(np_array)
+    hidden_states_np = np.vstack(hidden_states_np)
+    return hidden_states_np
+
 
 def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
     tokenizer,_,processor = get_cached_components()
     import time
     start_time_transcription= time.perf_counter()
     if 1==1:
-           trainer.model.config.output_hidden_states = True
+           #trainer.model.config.output_hidden_states = True
            results = []
            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
            test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
            prediction_sentences = []
            labels_list = []
+           last_states = []
            model = trainer.model.eval()
            model = torch.compile(model)
            for batch in tqdm(test_dataloader, desc= "Evaluating batches"):  # Ensure you have a DataLoader for test_dataset
@@ -365,6 +442,8 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
                     #model.config.output_hidden_states = True # return also the hidden states
                     #model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
                     outputs = model.generate(input_features=batch["input_features"])
+                    breakpoint()
+                    last_layer = model(batch['input_features'])
         
                     #logits = outputs.logits
                     #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
@@ -373,6 +452,7 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
                     #hidden_states = outputs.encoder_last_layer_hidden_state
                     prediction_sentences.append(predictions)
                     labels_list.append(labels)
+
                     #hidden_states = outputs.hidden_states
                 #results.append(outputs)
     #trainer.model.generation_config.cache_implementation = "static"
