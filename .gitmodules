@@ -3,3 +3,15 @@
 	path = diffusion/sgmse
 	url = https://github.com/sp-uhh/sgmse.git
 
+[submodule "storm"]
+	path = storm
+	url = /pfs/work7/workspace/scratch/uhicv-blah/storm
+[submodule "facebook_denoiser"]
+	path = facebook_denoiser
+	url = /pfs/work7/workspace/scratch/uhicv-blah/facebook_denoiser/
+[submodule "whisper-jax"]
+	path = whisper-jax
+	url = /pfs/work7/workspace/scratch/uhicv-blah/whisper-jax
+[submodule "noise_reduce"]
+	path = noise_reduce
+	url = /pfs/work7/workspace/scratch/uhicv-blah/noise_reduce/
