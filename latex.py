@@ -38,6 +38,7 @@ def create_dipco_baseline_latex_table(dipco_df:pd.DataFrame)->None:
     create_vanilla_baseline_latex_table(dipco_df)
     create_peft_latex_table(dipco_df)
     create_dipco_diffusion_latex_table(dipco_df)
+    #create_denoising_latex_table(df)
     return
   
 
@@ -68,6 +69,16 @@ def create_dipco_diffusion_latex_table(df):
     print("diffusion_without training")
     print_baseline_table(no_training_df)
     return
+
+
+def create_denoising_latex_table(df):
+    facebook_df = df.query('run_notes == "facebook denoising"')
+    noise_reduce_df = df.query('run_notes == "noise reduce"')
+    print_baseline_table(facebooks_df)
+    print("facebook df above and noisereduce below")
+    print_baseline_table(noise_reduce_df)
+    return 
+
 
 
 

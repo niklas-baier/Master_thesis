@@ -50,7 +50,6 @@ def main(argv):
     features = preprocessing.generate_features(run_details)
     expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
     expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
-    breakpoint()
     dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
     all = [expanded_df, dev_df, eval_df]
     all_df = pd.concat(all).reset_index(drop=True)
@@ -109,7 +108,6 @@ def main(argv):
            
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        breakpoint()
         best_model = torch.load(path_of_best_model)
         trainer.model = best_model
     
@@ -143,9 +141,13 @@ def generate_audio_only(all_df):
             old_df = pd.read_csv(alldf_path)
             for row_num in tqdm(range(all_df.shape[0])):
                 if(all_df['file_path'][row_num] != old_df['file_path'][row_num]):
+                    pass
                 if(all_df['num_frames'][row_num] != old_df['num_frames'][row_num]):
+                    pass
                 if(all_df['startframe'][row_num] != old_df['startframe'][row_num]):
+                    pass
                 if(all_df['words'][row_num] != old_df['words'][row_num]):
+                    pass
     return
 
 
