@@ -41,7 +41,8 @@ class RunDetails:
     beamforming: str = field(default ="N")
     num_trainable_parameters: int = 0
     SWAD: bool = False
-    diffusion: str = field(default="N") 
+    diffusion: str = field(default="N")
+    precision: str = field(default='full')
 
 
 

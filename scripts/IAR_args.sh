@@ -2,9 +2,9 @@
 
 CUDA_LAUNCH_BLOCKING=1 CUDA_VISIBLE_DEVICES=2 python3 ../whisper_main.py --dataset_name "dipco" \
                    --model_id "distil-whisper/distil-large-v3" \
-                   --version "peft" \
+                   --version "vanilla" \
                    --environment "cluster" \
-                   --train_state "T" \
+                   --train_state "NT" \
                    --device "cuda" \
                    --task "transcribe" \
                    --developer_mode "N" \
@@ -17,7 +17,8 @@ CUDA_LAUNCH_BLOCKING=1 CUDA_VISIBLE_DEVICES=2 python3 ../whisper_main.py --datas
 		   --beamforming "N"\
 		   --SWAD False\
 		   --diffusion "N" \
-		   --checkpoint ""
+		   --checkpoint "" \
+		   --precision "half"
 
 
 

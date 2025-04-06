@@ -55,6 +55,7 @@ def log_run(run_details:RunDetails, run_results:RunResults, results_path, traini
         "num_trainable_parameters" : run_details.num_trainable_parameters,
         'diffusion' : run_details.diffusion,
         "inference_time": 0,
+        "precision": run_details.precision,
 
         # wer far field microphones
         # wer close microphones

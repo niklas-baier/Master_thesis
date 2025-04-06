@@ -328,13 +328,6 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     test_dataframe['try'] = test_dataframe.index
     test_dataframe = test_dataframe.sort_values(by=['file_path', 'try'], ascending=[True, True])
     test_dataframe = test_dataframe.drop(columns = ['try'])
-        if run_details.environment == "cluster":
-            beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
-            test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-            beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
-            train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-        if run_details.environment == "bwcluster":
-            pass
 
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)

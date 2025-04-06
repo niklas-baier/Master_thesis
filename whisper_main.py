@@ -43,7 +43,7 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args()
     formated_date = preprocessing.get_formated_date() 
-    run_details = RunDetails(dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
+    run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                             train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
                             developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
 
@@ -74,8 +74,7 @@ def main(argv):
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
     if run_details.train_state == 'NT':
         #TODO
-        transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
-                                                            run_details=run_details )
+        transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
@@ -142,9 +141,13 @@ def generate_audio_only(all_df):
             old_df = pd.read_csv(alldf_path)
             for row_num in tqdm(range(all_df.shape[0])):
                 if(all_df['file_path'][row_num] != old_df['file_path'][row_num]):
+                    print('not same filepath')
                 if(all_df['num_frames'][row_num] != old_df['num_frames'][row_num]):
+                    print('not same num_frames')
                 if(all_df['startframe'][row_num] != old_df['startframe'][row_num]):
+                    print('not same startframe')
                 if(all_df['words'][row_num] != old_df['words'][row_num]):
+                    print('not same')
     return
 
 
@@ -304,7 +307,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
        #model = get_peft_model(trainer, run_details)
-       predictions = predict(trainer=trainer,test_dataset=test_dataset)
+       predictions = predict(trainer=trainer,test_dataset=test_dataset, run_details=run_details)
 
        '''
        total_size = len(test_dataset)
@@ -321,14 +324,11 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
 
     else:
  
-        model_size = "distil-large-v3"
         #breakpoint()
         #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
         #texts = [segment.text for segment in segments]
         #print(texts[0:10])
-        breakpoint()
-        hidden_states = get_hidden_states(trainer=trainer, test_dataset = test_dataset)
-        breakpoint()
+        hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         from sklearn.manifold import TSNE
         import matplotlib.pyplot as plt
         tsne = TSNE(n_components=2, random_state=42)
@@ -381,24 +381,23 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         plt.savefig('whisper_tsne_visualization.png', dpi=300)
 
         start_time_transcription= time.perf_counter()
-        predictions = predict( trainer=trainer, test_dataset=test_dataset )
+        #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
+        breakpoint() #TODO convert into the same format (df)
         end_time_transcription = time.perf_counter()
         inference_time = end_time_transcription-start_time_transcription
         print(inference_time)
-        breakpoint()
         
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
 
 def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) :
     if run_details.version == "peft":
-        predictions = predict(trainer=trainer, test_dataset=test_dataset)
+        predictions = predict(trainer=trainer, test_dataset=test_dataseti, run_details=run_details)
 
     else:
-        model_size = "distil-large-v3"
   
         start_time_transcription = time.perf_counter()
-        predictions = predict(trainer=trainer, test_dataset = test_dataset)
+        predictions = predict(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         end_time_transcription  = time.perf_counter()
         inference_time = end_time_transcription - start_time_transcription
         print(inference_time)
@@ -418,21 +417,35 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     result_labels = map_to_strings(predict.label_ids)
     df = pl.DataFrame({'predictions':result_predictions, 'labels': result_labels})
     return df
-def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset) :
+def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details) :
     tokenizer,_,processor = get_cached_components()
     hidden_states = []
+    labels  = []
+    predictions = []
     collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
     test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
     model = trainer.model.eval()
-    model = torch.compile(model)
+    if run_details.precision =='half':
+        model = model.half()
     model.config.output_hidden_states = True # return also the hidden states#
     model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
 
     for batch in tqdm(test_dataloader, desc = "tsne-visualization"):
         with torch.no_grad():
             batch.to("cuda")
-            outputs = model.generate(input_features=batch["input_features"], output_hidden_states=True)
+            if run_details.precision == 'half':
+                outputs = model.generate(input_features=batch['input_features'].half(), output_hidden_states=True)
+            else:
+                outputs = model.generate(input_features=batch["input_features"], output_hidden_states=True)
             hidden_states.append(list(outputs.decoder_hidden_states[-1])[-1])
+            prediction = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+            label = processor.batch_decode(batch['labels'],skip_special_tokens=True)
+            predictions.append(prediction)
+            labels.append(label)
+            predictions_flattened = flatten_list_once(predictions)
+            labels_flattened = flatten_list_once(labels)
+            df = create_polars_df(predictions_flattened, labels_flattened)
+
             del outputs
     hidden_states_np = []
     for tensor in hidden_states:
@@ -440,10 +453,10 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset) :
         np_array = flattened_tensor.detach().cpu().numpy()
         hidden_states_np.append(np_array)
     hidden_states_np = np.vstack(hidden_states_np)
-    return hidden_states_np
+    return hidden_states_np,df 
 
 
-def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
+def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset, run_details) -> pl.DataFrame:
     tokenizer,_,processor = get_cached_components()
     import time
     start_time_transcription= time.perf_counter()
@@ -456,7 +469,8 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
            labels_list = []
            last_states = []
            model = trainer.model.eval()
-           model = torch.compile(model)
+           if run_details.precision == 'half':
+               model = model.half()
            for batch in tqdm(test_dataloader, desc= "Evaluating batches"):  # Ensure you have a DataLoader for test_dataset
                 with torch.no_grad():
                     batch.to("cuda")
@@ -464,13 +478,14 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset) -> pl.DataFrame:
                     #outputs = model(**batch, output_hidden_states=True)  # simple forward pass is not sufficient for a acceptable WER
                     #model.config.output_hidden_states = True # return also the hidden states
                     #model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
-                    outputs = model.generate(input_features=batch["input_features"])
-                    breakpoint()
-                    last_layer = model(batch['input_features'])
+                    if run_details.precision == 'half':
+                        outputs = model.generate(input_features = batch['input_features'].half())
+                    else:
+                        outputs = model.generate(input_features=batch["input_features"])
         
                     #logits = outputs.logits
                     #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
-                    predictions = processor.batch_decode(outputs, skip_special_tokens=True)
+                    predictions = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
                     labels = processor.batch_decode(batch["labels"], skip_special_tokens=True)
                     #hidden_states = outputs.encoder_last_layer_hidden_state
                     prediction_sentences.append(predictions)
