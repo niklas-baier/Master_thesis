@@ -34,6 +34,7 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument( '--beamforming', type=str, choices=["Y","N"], required=False )
     parser.add_argument('--SWAD', type=bool, required=False)
     parser.add_argument('--diffusion', type=str, required=False, choices=['Y','N'])
+    parser.add_argument('--precision', type=str, required=False, choices=['full', 'half'])
     return parser
 
 parser = get_parser()
@@ -58,4 +59,5 @@ flags.DEFINE_enum('data_portion', None, ['clean-only', 'far-only', 'all'], 'Data
 flags.DEFINE_enum('beamforming', None, ['Y', 'N'], 'Beamforming enabled', required=False)
 flags.DEFINE_boolean('SWAD', False, 'SWAD flag', required=False)
 flags.DEFINE_enum('diffusion', None, ['Y', 'N'], 'Diffusion enabled', required=False)
+flags.DEFINE_enum('precision',None, ['full','half'], 'precision', required=False)
 

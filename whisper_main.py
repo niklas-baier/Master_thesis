@@ -32,7 +32,9 @@ from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 import copy
 import torchaudio
 from typing import Optional
+from contrastive import train_infonce
 def main(argv):
+    torch.cuda.memory._record_memory_history()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
@@ -67,7 +69,18 @@ def main(argv):
     #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
     training_args = generate_training_args(run_details)
-    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+    #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+    BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+    NUM_EPOCHS = 3
+    LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
+    WEIGHT_DECAY = 0.01
+    INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
+    TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+    collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
+    clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
+    breakpoint()
 
 
     processor.save_pretrained(training_args.output_dir)
@@ -88,7 +101,7 @@ def main(argv):
         path_of_best_model = f'min_training.pth'
         for i in range(num_epochs):
             print(i)
-            trainer.args.max_steps = 400
+            trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
             
             trainer.train()
             validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
@@ -442,17 +455,18 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
             label = processor.batch_decode(batch['labels'],skip_special_tokens=True)
             predictions.append(prediction)
             labels.append(label)
-            predictions_flattened = flatten_list_once(predictions)
-            labels_flattened = flatten_list_once(labels)
-            df = create_polars_df(predictions_flattened, labels_flattened)
-
             del outputs
+            torch.cuda.memory._dump_snapshot('hidden_states.pickle')
+            breakpoint()
     hidden_states_np = []
     for tensor in hidden_states:
         flattened_tensor = einops.rearrange(tensor, 'b 1 d -> b d') 
         np_array = flattened_tensor.detach().cpu().numpy()
         hidden_states_np.append(np_array)
     hidden_states_np = np.vstack(hidden_states_np)
+    predictions_flattened = flatten_list_once(predictions)
+    labels_flattened = flatten_list_once(labels)
+    df = create_polars_df(predictions_flattened,labels_flattened)
     return hidden_states_np,df 
 
 

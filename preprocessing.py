@@ -12,7 +12,7 @@ from datasets import Dataset
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
-from typing import List, Any, Callable 
+from typing import List, Any, Callable, Union 
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
@@ -331,7 +331,12 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
 
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
-    train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
+    if run_details.run_notes == 'contrastive':
+        test_size  = get_next_highest_divisible_number(0.05*train_dataframe.shape[0],6)
+        eval_dataframe = train_dataframe[-test_size:]
+        train_dataframe = train_dataframe[:test_size]
+    else:
+        train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
     eval_dataframe.reset_index( drop=True, inplace=True )
     train_dataframe.reset_index(drop=True, inplace=True)
     test_dataframe.reset_index(drop=True, inplace=True)
@@ -340,6 +345,12 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     else:
         return train_dataframe, eval_dataframe,test_dataframe
 
+def get_next_highest_divisible_number(number, num_microphones):
+    remainder = number % num_microphones
+    if remainder == 0:
+        return int(remainder)
+    else:
+        return int(number+6-remainder)
 
 def set_data_portion_of_training(run_details:"RunDetails", train_dataframe:pd.DataFrame)-> pd.DataFrame:
     # ID144
@@ -499,34 +510,30 @@ def prepare_noisedataset_seq2seq(batch):
 
 
 
-def map_datasets(run_details:"RunDetails", train_dataset:Dataset,eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:str)-> None:
+def map_datasets(run_details:"RunDetails", train_dataset:Union[Dataset, List[Dataset]],eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:str)-> dict:
     #ID 163
     if run_details.augmentation == "Y":
         mapping_function = prepare_noisedataset_seq2seq
     else:
         mapping_function = prepare_dataset_seq2seq
-
-
-    map_and_store_datasets(run_details, train_dataset, eval_dataset, test_dataset, dataset_paths, mapping_function)
-
-
-
-
-
-def map_and_store_datasets(run_details:"RunDetails", train_dataset:Dataset, eval_dataset:Dataset, test_dataset:Dataset, dataset_paths:dict, mapping_function:Callable[[Any], Dataset]) ->None:
-    #ID 164
-    if run_details.augmentation == "Y":
-        mapping_function = prepare_noisedataset_seq2seq
-    
-    train_dataset = train_dataset.map(mapping_function)
-    train_dataset.save_to_disk(dataset_paths['train'])
+    if run_details.dataset_name == 'dipco':
+        if run_details.run_notes == 'contrastive':
+            assert isinstance(train_dataset, list)
+            assert all(isinstance(x, Dataset) for x in train_dataset)
+            train_dataset = [x.map(mapping_function) for x in train_dataset]
+        else:
+            train_dataset = train_dataset.map(mapping_function)
     mapping_function = prepare_dataset_seq2seq
     eval_dataset = eval_dataset.map(mapping_function)
-    eval_dataset.save_to_disk(dataset_paths['eval'])
     test_dataset = test_dataset.map(mapping_function)
-    test_dataset.save_to_disk(dataset_paths['test'])
-    del test_dataset
-    return
+    return {'train_dataset':train_dataset, 'eval_dataset': eval_dataset, 'test_dataset':test_dataset}
+
+
+
+
+
+
+
 
 
 def mapped_dataset_exists(dataset_path:str)-> bool:

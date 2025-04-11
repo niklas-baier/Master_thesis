@@ -354,45 +354,62 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
     train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
         run_details=run_details )\
 
+    eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
+    test_features = generate_test_features(run_details)
+    test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True ) 
     eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if run_details.developer_mode == "Y":
         eval_df = eval_df.head(100)
     if not (mapped_dataset_exists( train_dataset_path )):
-        # save the data from the dataframe in a csv fails if the file already exists
-        eval_df.to_csv( "shuffled_test_dataframe.csv")
-        print( "dataset not mapped yet" )
-        dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
-        train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features,test_dataset=False )
-        eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
-        test_features = generate_test_features(run_details)
-        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
-        map_datasets( run_details=run_details, train_dataset=train_dataset,
-                      eval_dataset=eval_dataset,
-                      test_dataset=test_dataset, dataset_paths=dataset_paths )
 
-    train_dataset = datasets.load_from_disk( train_dataset_path )
+        if run_details.run_notes == 'contrastive':
+            dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
+            df_chunks = []
+            for i in range(6):
+                chunk = expanded_df.iloc[i::6]
+                df_chunks.append(chunk)
+            generate_arrow_ds = partial(Hug_dataset_creation, developer_mode=run_details.developer_mode, features=features, test_dataset=False)
+            arrow_ds = [generate_arrow_ds(x) for x in df_chunks]
+            datasets = map_datasets( run_details=run_details, train_dataset=arrow_ds,eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
+
+    # removeass
+        else:
+        # save the data from the dataframe in a csv fails if the file already exists
+            dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
+            train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features,test_dataset=False )
+            datasets = map_datasets( run_details=run_details, train_dataset=train_dataset,
+                          eval_dataset=eval_dataset,
+                          test_dataset=test_dataset, dataset_paths=dataset_paths )
+
     # remove the unncessary columns
 
-    def drop_columns(dataset):
-        columns_to_be_dropped = [x for x in dataset.column_names if x not in ['input_features', 'labels']]
-        dataset = dataset.remove_columns( columns_to_be_dropped )
-        return dataset
-    train_dataset = drop_columns(train_dataset)
+        def drop_columns(dataset):
+            columns_to_be_dropped = [x for x in dataset.column_names if x not in ['input_features', 'labels']]
+            dataset = dataset.remove_columns( columns_to_be_dropped )
+            return dataset
+        test_features = generate_test_features(run_details)
+        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True ) 
+        train_dataset = datasets['train_dataset']
+        if isinstance(train_dataset, List):
+            train_dataset = [drop_columns(x) for x in train_dataset]
+        else:
+            train_dataset = drop_columns(train_dataset)
 
 
-    eval_dataset = datasets.load_from_disk( eval_dataset_path )
-    eval_dataset = drop_columns(eval_dataset)
+        eval_dataset = datasets['eval_dataset']
+        eval_dataset = drop_columns(eval_dataset)
 
-    test_dataset = datasets.load_from_disk( test_dataset_path )
-    test_dataset = drop_columns(test_dataset)
+        test_dataset = datasets['test_dataset']
+        test_dataset = drop_columns(test_dataset)
 
-    #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
+        #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
 
-    if args.augmentation == "Y":
-        noisy_train_dataset_path = "noise" + train_dataset_path
-        if not (mapped_dataset_exists( noisy_train_dataset_path )):
-            noisy_train_dataset_path = generate_noise_dataset( expanded_df=expanded_df, run_details=run_details,
-                                                               features=features )
-        train_dataset = datasets.load_from_disk( noisy_train_dataset_path )
+        if args.augmentation == "Y":
+            noisy_train_dataset_path = "noise" + train_dataset_path
+            if not (mapped_dataset_exists( noisy_train_dataset_path )):
+                noisy_train_dataset_path = generate_noise_dataset( expanded_df=expanded_df, run_details=run_details,
+                                                                   features=features )
+            train_dataset = datasets.load_from_disk( noisy_train_dataset_path )
 
-    return train_dataset, eval_dataset, test_dataset
+        return train_dataset, eval_dataset, test_dataset
+
