@@ -161,7 +161,7 @@ def generate_audio_only(all_df):
                     print('not same startframe')
                 if(all_df['words'][row_num] != old_df['words'][row_num]):
                     print('not same')
-    return
+        return
 
 
   
