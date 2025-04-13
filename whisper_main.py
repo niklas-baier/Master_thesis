@@ -69,18 +69,23 @@ def main(argv):
     #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
     training_args = generate_training_args(run_details)
+    if run_details.run_notes == 'contrastive':
+
     #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-    BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
-    NUM_EPOCHS = 3
-    LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
-    WEIGHT_DECAY = 0.01
-    INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
-    TEMPERATURE = 0.07 # Common temperature value for InfoNCE
-    collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
-    clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
-    breakpoint()
+        BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+        NUM_EPOCHS = 3
+        LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
+        WEIGHT_DECAY = 0.01
+        INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
+        TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
+        clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
+        breakpoint()
+    else:
+        trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+      
 
 
     processor.save_pretrained(training_args.output_dir)
@@ -395,7 +400,6 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
 
         start_time_transcription= time.perf_counter()
         #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
-        breakpoint() #TODO convert into the same format (df)
         end_time_transcription = time.perf_counter()
         inference_time = end_time_transcription-start_time_transcription
         print(inference_time)
@@ -450,14 +454,14 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
                 outputs = model.generate(input_features=batch['input_features'].half(), output_hidden_states=True)
             else:
                 outputs = model.generate(input_features=batch["input_features"], output_hidden_states=True)
-            hidden_states.append(list(outputs.decoder_hidden_states[-1])[-1])
+            hidden_states.append(list(outputs.encoder_hidden_states[-1])[-1])
+            breakpoint()
             prediction = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
             label = processor.batch_decode(batch['labels'],skip_special_tokens=True)
             predictions.append(prediction)
             labels.append(label)
             del outputs
-            torch.cuda.memory._dump_snapshot('hidden_states.pickle')
-            breakpoint()
+            #torch.cuda.memory._dump_snapshot('hidden_states.pickle')
     hidden_states_np = []
     for tensor in hidden_states:
         flattened_tensor = einops.rearrange(tensor, 'b 1 d -> b d') 
