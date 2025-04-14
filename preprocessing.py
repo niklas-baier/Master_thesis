@@ -41,6 +41,7 @@ def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str
     # This method sets the base paths of the dipco and Chim6Dataset for different environments ID:126
     dataset_path = "/project/data_asr/dipco/Dipco"
     bw_workplace_path = '/pfs/work7/workspace/scratch/uhicv-blah'
+    bw_workplace_path = '/pfs/work9/workspace/scratch/ka_uhicv-blah'
     if environment == 'cluster':
         if dataset_name == "Chime6":
             dataset_path = '/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/'#'/export/data2/nbaier/espnet/egs2/chime7_task1/asr1/dataset/ChiME6/audio/train'
@@ -68,13 +69,14 @@ def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str
             dataset_path, dev_path, eval_path, transcript_dev_path, transcript_eval_path = dipco_paths(
                 dataset_path=dataset_path)
             if run_details.run_notes =='facebook denoising':
-                eval_path = '/pfs/work7/workspace/scratch/uhicv-blah/facebook_denoiser/data/eval/testable_results'
-                dev_path ='/pfs/work7/workspace/scratch/uhicv-blah/facebook_denoiser/data/dev/testable_results' 
+                eval_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/eval/testable_results')
+                dev_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/dev/testable_results') 
             if run_details.run_notes == 'noise reduce':
-                eval_path = '/pfs/work7/workspace/scratch/uhicv-blah/noise_reduce/Dipco/eval'
-                dev_path = '/pfs/work7/workspace/scratch/uhicv-blah/noise_reduce/Dipco/dev'
+                eval_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/eval')
+                breakpoint()
+                dev_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/dev')
             if run_details.run_notes == 'storm':
-                eval_path = '/pfs/work7/workspace/scratch/uhicv-blah/storm/whisper_inference_wavs/audio/eval'
+                eval_path = os.path.join(bw_workplace_path,'storm/whisper_inference_wavs/audio/eval')
             if run_details.dataset_evaluation_part == "dev":
                 dev_path, eval_path = eval_path,dev_path
                 transcript_dev_path, transcript_eval_path = transcript_eval_path,transcript_dev_path

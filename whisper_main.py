@@ -30,6 +30,7 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
 from torch.utils.data import DataLoader, Subset 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 import copy
+import wandb
 import torchaudio
 from typing import Optional
 from contrastive import train_infonce
@@ -38,6 +39,7 @@ def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
+    wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ['WANDB_PROJECT'] = 'WHISPER'
     os.environ['WAND_LOG_MODEL'] = 'true'
@@ -107,6 +109,8 @@ def main(argv):
         for i in range(num_epochs):
             print(i)
             trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+
+            print(trainer.args.max_steps)
             
             trainer.train()
             validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
