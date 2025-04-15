@@ -73,7 +73,6 @@ def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str
                 dev_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/dev/testable_results') 
             if run_details.run_notes == 'noise reduce':
                 eval_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/eval')
-                breakpoint()
                 dev_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/dev')
             if run_details.run_notes == 'storm':
                 eval_path = os.path.join(bw_workplace_path,'storm/whisper_inference_wavs/audio/eval')

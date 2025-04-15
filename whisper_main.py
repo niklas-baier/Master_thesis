@@ -35,7 +35,6 @@ import torchaudio
 from typing import Optional
 from contrastive import train_infonce
 def main(argv):
-    torch.cuda.memory._record_memory_history()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
@@ -84,7 +83,6 @@ def main(argv):
         clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
-        breakpoint()
     else:
         trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
       
@@ -351,6 +349,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         #texts = [segment.text for segment in segments]
         #print(texts[0:10])
         hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
+        np.save('hidden_states_encoder.npy', hidden_states)
         from sklearn.manifold import TSNE
         import matplotlib.pyplot as plt
         tsne = TSNE(n_components=2, random_state=42)
@@ -458,8 +457,7 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
                 outputs = model.generate(input_features=batch['input_features'].half(), output_hidden_states=True)
             else:
                 outputs = model.generate(input_features=batch["input_features"], output_hidden_states=True)
-            hidden_states.append(list(outputs.encoder_hidden_states[-1])[-1])
-            breakpoint()
+            hidden_states.append(torch.mean(list(outputs.encoder_hidden_states)[-1], axis=1))
             prediction = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
             label = processor.batch_decode(batch['labels'],skip_special_tokens=True)
             predictions.append(prediction)
@@ -468,8 +466,7 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
             #torch.cuda.memory._dump_snapshot('hidden_states.pickle')
     hidden_states_np = []
     for tensor in hidden_states:
-        flattened_tensor = einops.rearrange(tensor, 'b 1 d -> b d') 
-        np_array = flattened_tensor.detach().cpu().numpy()
+        np_array = tensor.detach().cpu().numpy()
         hidden_states_np.append(np_array)
     hidden_states_np = np.vstack(hidden_states_np)
     predictions_flattened = flatten_list_once(predictions)

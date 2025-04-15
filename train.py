@@ -352,7 +352,7 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
     from preprocessing import generate_test_features
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets
     train_dataset_path, eval_dataset_path, test_dataset_path = generate_dataset_paths(
-        run_details=run_details )\
+        run_details=run_details )
 
     eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
     test_features = generate_test_features(run_details)
@@ -360,7 +360,7 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
     eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if run_details.developer_mode == "Y":
         eval_df = eval_df.head(100)
-    if not (mapped_dataset_exists( train_dataset_path )):
+    if True:
 
         if run_details.run_notes == 'contrastive':
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
