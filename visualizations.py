@@ -16,7 +16,43 @@ from augmentations import filter_p_audio, add_file_name
 from evaluation import  analysis_special_tokens
 from preprocessing import get_formated_date
 from train import RunResults, transcribe_audio
+def plot_hidden_states(hidden_states,run_details):
+        plot_tsne_hidden_states(hidden_states, run_details)
+        plot_umap_hidden_states(hidden_states, run_details)
+      
+def plot_tsne_hidden_states(hidden_states, run_details):
+      from sklearn.manifold import TSNE
+    
+      tsne = TSNE(n_components=2, random_state=42)
+      embeddings = tsne.fit_transform(hidden_states)
+      plot_hidden_states(embeddings,"t-SNE", run_details=run_details)
 
+def plot_hidden_states(embeddings, name_of_dimensionality_reduction_algorithm, run_details):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 8))
+    step_size = 1127
+    alpha,beta,gamma,delta, epsilon = list(range(step_size,6*step_size,step_size))
+    plt.scatter(embeddings[:alpha, 0], embeddings[:alpha, 1], color='r', alpha=0.7, s=40, label='Persons')
+    plt.scatter(embeddings[alpha:beta, 0], embeddings[alpha:beta, 1], color='b', alpha=0.7, s=40, label='Microphone 1')
+    plt.scatter(embeddings[beta:gamma, 0], embeddings[beta:gamma, 1], color='g', alpha=0.7, s=40, label='Microphone 2')
+    plt.scatter(embeddings[gamma:delta, 0], embeddings[gamma:delta, 1], color='y', alpha=0.7, s=40, label='Microphone 3')
+    plt.scatter(embeddings[delta:epsilon, 0], embeddings[delta:epsilon, 1], color='k', alpha=0.7, s=40, label='Microphone 4')
+    plt.scatter(embeddings[epsilon:, 0], embeddings[epsilon:, 1], color='c', alpha=0.7, s=40, label='Microphone 5')
+    plt.title(f'{name_of_dimensionality_reduction_algorithm} Visualization of Whisper Hidden States')
+    plt.xlabel(f'{name_of_dimensionality_reduction_algorithm} dimension 1')
+    plt.ylabel(f'{name_of_dimensionality_reduction_algorithm} dimension 2')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig(f'{name_of_dimensionality_reduction_algorithm}_{run_details.model_id[:5]}_{run_details.dataset_name}.png')
+def plot_umap_hidden_states(hidden_states, run_details):
+    import umap
+    reducer = umap.UMAP(n_components=2, random_state=42)
+    umap_embeddings = reducer.fit_transform(hidden_states)
+    plot_hidden_states(umap_embeddings,"UMAP", run_details=run_details)
+
+
+
+
+        
 def plot_validation_wer(list_of_wers,epochs, steps_per_epoch):
     epochs = list(range(0, steps_per_epoch*epochs, steps_per_epoch))
     plt.figure(figsize=(10,6))

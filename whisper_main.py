@@ -350,57 +350,9 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         #print(texts[0:10])
         hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         np.save('hidden_states_encoder.npy', hidden_states)
-        from sklearn.manifold import TSNE
-        import matplotlib.pyplot as plt
-        tsne = TSNE(n_components=2, random_state=42)
-        tsne_results = tsne.fit_transform(hidden_states)
-        plt.figure(figsize=(10, 8))
-        step_size = 1127
-        alpha,beta,gamma,delta, epsilon = list(range(step_size,6*step_size,step_size))
-        plt.scatter(tsne_results[:alpha, 0], tsne_results[:alpha, 1], 
-                            color='r', alpha=0.7, s=40, label='Persons')
-        plt.scatter(tsne_results[alpha:beta, 0], tsne_results[alpha:beta, 1], 
-                            color='b', alpha=0.7, s=40, label='Microphone 1')
-        plt.scatter(tsne_results[beta:gamma, 0], tsne_results[beta:gamma, 1], 
-                            color='g', alpha=0.7, s=40, label='Microphone 2')
-        plt.scatter(tsne_results[gamma:delta, 0], tsne_results[gamma:delta, 1], 
-                            color='y', alpha=0.7, s=40, label='Microphone 3')
-        plt.scatter(tsne_results[delta:epsilon, 0], tsne_results[delta:epsilon, 1], 
-                            color='k', alpha=0.7, s=40, label='Microphone 4')
-        plt.scatter(tsne_results[epsilon:, 0], tsne_results[epsilon:, 1], 
-                            color='c', alpha=0.7, s=40, label='Microphone 5')
-
-        # Plot remai
-
-        # Plot remai
-
-        # Plot remai
-
-        # Plot remai
-
-        # Plot remai
-
-        # Plot remai
-        plt.title('t-SNE Visualization of Whisper Hidden States')
-        plt.xlabel('t-SNE dimension 1')
-        plt.ylabel('t-SNE dimension 2')
-        plt.grid(True, linestyle='--', alpha=0.7)
-
-        # Optional: If you have labels, you can color the points accordingly
-        # colors = ['r', 'g', 'b', ...]  # Define colors for each class
-        # for i, label in enumerate(labels):
-        #     indices = np.where(np.array(labels) == label)[0]
-        #     plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], 
-        #                 c=colors[i % len(colors)], label=label, alpha=0.7, s=40)
-        # plt.legend()
-
-        # Add text annotations (optional)
-        # for i, (x, y) in enumerate(tsne_results):
-        #     plt.annotate(str(i), (x, y), fontsize=8)
-
-        plt.tight_layout()
-        plt.savefig('whisper_tsne_visualization.png', dpi=300)
-
+    
+        from visualizations import plot_hidden_states
+        plot_hidden_states(hidden_states=hidden_states, run_details=run_details)
         start_time_transcription= time.perf_counter()
         #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
         end_time_transcription = time.perf_counter()
@@ -412,7 +364,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
 
 def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) :
     if run_details.version == "peft":
-        predictions = predict(trainer=trainer, test_dataset=test_dataseti, run_details=run_details)
+        predictions = predict(trainer=trainer, test_dataset=test_dataset, run_details=run_details)
 
     else:
   
