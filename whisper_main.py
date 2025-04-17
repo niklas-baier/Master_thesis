@@ -97,7 +97,7 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 3
+        num_epochs = 20
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
@@ -130,6 +130,9 @@ def main(argv):
         elapsed_time = end_time - start_time
         best_model = torch.load(path_of_best_model)
         trainer.model = best_model
+        wer_df = pd.DataFrame(wers)
+        wer_df.to_csv('wers.csv')
+
     
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
@@ -351,8 +354,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         np.save('hidden_states_encoder.npy', hidden_states)
     
-        from visualizations import plot_hidden_states
-        plot_hidden_states(hidden_states=hidden_states, run_details=run_details)
+        from visualizations import visualize_hidden_states
+        visualize_hidden_states(hidden_states=hidden_states, run_details=run_details)
         start_time_transcription= time.perf_counter()
         #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
         end_time_transcription = time.perf_counter()
@@ -456,7 +459,7 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset, run_details) -> pl.Data
         
                     #logits = outputs.logits
                     #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
-                    predictions = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+                    predictions = processor.batch_decode(outputs, skip_special_tokens=True)
                     labels = processor.batch_decode(batch["labels"], skip_special_tokens=True)
                     #hidden_states = outputs.encoder_last_layer_hidden_state
                     prediction_sentences.append(predictions)
