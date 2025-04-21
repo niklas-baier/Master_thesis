@@ -1,10 +1,11 @@
 import evaluate
 import einops
-from tqdm.auto import tqdm 
+from discriminator import setup_models, train_adversarial
+from tqdm.auto import tqdm
 from absl import flags, app
-import numpy as np 
+import numpy as np
 import json
-import glob 
+import glob
 import re
 import polars as pl
 import time
@@ -27,7 +28,7 @@ import torch
 from torch import optim
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
-from torch.utils.data import DataLoader, Subset 
+from torch.utils.data import DataLoader, Subset
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction
 import copy
 import wandb
@@ -45,7 +46,7 @@ def main(argv):
     torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
     parser = get_parser()
     args = parser.parse_args()
-    formated_date = preprocessing.get_formated_date() 
+    formated_date = preprocessing.get_formated_date()
     run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
                             train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
                             developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
@@ -83,9 +84,27 @@ def main(argv):
         clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
+    elif run_details.run_notes == 'GAN':
+        LAMBDA_DOMAIN = 0.1
+        NUM_EPOCHS =10
+        BATCH_SIZE = 8 # Adjust based on GPU memory
+        NUM_EPOCHS = 5
+        LEARNING_RATE = 1e-5
+        WEIGHT_DECAY = 0.01
+        LAMBDA_DOMAIN = 0.1 # How much to weight the adversarial loss
+        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
+        clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        whisper_model, discriminator, grl, task_head, device = setup_models(run_details.model_id)
+        from discriminator import train_adversarial
+        train_adversarial(whisper_model, discriminator, grl, task_head, dataloader_A= clean_dataloader, dataloader_B=dirty_dataloader, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN)
+
+
+
+
     else:
         trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-      
+
 
 
     processor.save_pretrained(training_args.output_dir)
@@ -97,40 +116,79 @@ def main(argv):
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
         #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 3
-        trainer.evaluation_strategy="no"
-        start_time = time.perf_counter()
-        wers = []
-        min_wer = 5
-        counter_since_last_min = 0
-        path_of_best_model = f'min_training.pth'
-        for i in range(num_epochs):
-            print(i)
-            trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+        num_epochs = 4
+        tokenizer,_,processor = get_cached_components()
+        hidden_states = []
+        labels  = []
+        predictions = []
+        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+        test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
+        scaler = torch.amp.GradScaler("cuda")
+        if run_details.SWAD == 'Y':
+            optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.1, momentum = 0.9)
+            #scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.01, mx_lr = 0.1)
+            #from torchcontrib.optim import SWA
+            #swad = torchcontrib.optim.SWA(optimizer, swa_start=10, swa_freq=5,swa_lr = 0.05)
 
-            print(trainer.args.max_steps)
-            
-            trainer.train()
-            validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
-            torch.cuda.empty_cache()
-            test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation)) 
-            df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
-            mean_wer = df['wer'].mean()
-            wers.append(mean_wer)
-            if(mean_wer < min_wer):
-                torch.save(trainer.model.state_dict(), path_of_best_model)
-                counter_since_last_min = 0
+            swa_model = torch.optim.swa_utils.AveragedModel(model)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+            swa_start = 5
+            swa_scheduler = torch.optim.swa_utils.SWALR(optimizer,anneal_strategy="linear", anneal_epochs=5, swa_lr=0.05)
+
+            for epoch in range(10):
+                model.to("cuda")
+                for batch in tqdm(test_dataloader, desc="training SWAD"):
+                    optimizer.zero_grad()
+                    with torch.amp.autocast("cuda"):
+                        outputs = model(input_features=batch['input_features'].to("cuda"), labels = batch['labels'].to("cuda"))
+                        loss = outputs.loss
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                if epoch > swa_start:
+                    swa_model.update_parameters(model)
+                    swa_scheduler.step()
+                else:
+                    scheduler.step()
+            # Update bn statistics for the swa_model at the end
+            torch.optim.swa_utils.update_bn(test_dataloader, swa_model)
+
+            # Use swa_model to make predictions on test data
+            model = swa_model
+        else:
+            trainer.evaluation_strategy="no"
+            start_time = time.perf_counter()
+            wers = []
+            min_wer = 5
+            counter_since_last_min = 0
+            path_of_best_model = f'min_training.pth'
+            for i in range(num_epochs):
+                print(i)
+                trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+
+                print(trainer.args.max_steps)
+
+                trainer.train()
+                validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
                 torch.cuda.empty_cache()
-            else:
-                counter_since_last_min +=1 
-            if counter_since_last_min >4:
-                break
-           
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-        best_model = torch.load(path_of_best_model)
-        trainer.model = best_model
-    
+                test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation))
+                df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
+                mean_wer = df['wer'].mean()
+                wers.append(mean_wer)
+                if(mean_wer < min_wer):
+                    torch.save(trainer.model.state_dict(), path_of_best_model)
+                    counter_since_last_min = 0
+                    torch.cuda.empty_cache()
+                else:
+                    counter_since_last_min +=1
+                if counter_since_last_min >4:
+                    break
+
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+            best_model = torch.load(path_of_best_model)
+            trainer.model = best_model
+
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
                                                             run_details=run_details )
@@ -141,7 +199,7 @@ def main(argv):
         log_run(run_details=run_details, run_results=run_results,training_time=elapsed_time, results_path=transcription_csv_path_trained)
 
         #TODO take it from the mode
-    return 
+    return
 
 def generate_audio_only(all_df):
     for i in range(all_df.shape[0]):
@@ -171,43 +229,43 @@ def generate_audio_only(all_df):
         return
 
 
-  
+
 
 
 def get_latest_checkpoint(path):
     # Find all directories matching the pattern checkpoint-{number}
     checkpoint_dirs = glob.glob(os.path.join(path, "checkpoint-*"))
-    
+
     # Extract numbers and find the highest one
     numbers = []
     for dir_path in checkpoint_dirs:
         match = re.search(r'checkpoint-(\d+)$', dir_path)
         if match:
             numbers.append(int(match.group(1)))
-    
+
     if not numbers:
         return None
-    
+
     # Get the highest number and construct the full path
     latest_checkpoint = f"checkpoint-{max(numbers)}"
     result_path = os.path.join(path, latest_checkpoint)
-    
+
     return result_path
 def average_weights(model_1, model_2, model_3):
     import copy
     averaged_model = copy.deepcopy(model_1)  # Create a new model to store averaged weights
-    
+
     # Iterate over model parameters
     for param_name, param_1 in model_1.state_dict().items():
         param_2 = model_2.state_dict()[param_name]
         param_3 = model_3.state_dict()[param_name]
-        
+
         # Average the weights
         averaged_param = (param_1 + param_2+param_3) / 3.0
-        
+
         # Set the averaged weights in the new model
         averaged_model.state_dict()[param_name].copy_(averaged_param)
-    
+
     return averaged_model
 
 def get_peft_model(trainer,run_details):
@@ -231,14 +289,14 @@ def get_peft_model(trainer,run_details):
 
         averaged_model = average_weights(model_1=model_1, model_2=model_2, model_3=model_3)
         return averaged_model
-    return model 
+    return model
 
 def get_top_lora_paths(adapter_path,df):
    eval_wers = [entry['eval_wer'] for log in df['log_history'] for entry in log if 'eval_wer' in entry]
    steps = [entry['step'] for log in df['log_history'] for entry in log if 'step' in entry]
    zipped = list(zip(eval_wers[1::2], steps[::2]))
    zipped.sort() # sorts after the first element
-   steps = [ steps for (_,steps) in zipped[:3]] # get first 3 steps 
+   steps = [ steps for (_,steps) in zipped[:3]] # get first 3 steps
    second_best = adapter_path.replace(str(steps[0]),str(steps[1]))
    third_best = adapter_path.replace(str(steps[0]),str(steps[2]))
    return second_best, third_best
@@ -274,11 +332,11 @@ def batch_decode_parallel(tokenizer, pred_ids, label_ids, skip_special_tokens=Tr
     # Define a function to decode a batch
     def decode(ids):
         return tokenizer.batch_decode(ids, skip_special_tokens=skip_special_tokens)
-    
+
     # Run decoding in parallel for predictions and labels
     with ThreadPoolExecutor(max_workers=2) as executor:
         pred_str, label_str = executor.map(decode, [pred_ids, label_ids])
-    
+
     return list(pred_str), list(label_str)
 
 def compute_chime_metrics(pred:EvalPrediction)->dict:
@@ -323,7 +381,7 @@ def compute_chime_metrics(pred:EvalPrediction)->dict:
 
 def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) -> str:
     #ID 172
-   
+
     #results = trainer.evaluate( eval_dataset=test_dataset )
     if run_details.version == "peft":
        #model = get_peft_model(trainer, run_details)
@@ -340,17 +398,17 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
        predictions = pl.concat(predictions, how='vertical')
        print("hi")'''
 
-       
+
 
     else:
- 
+
         #breakpoint()
         #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
         #texts = [segment.text for segment in segments]
         #print(texts[0:10])
         hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         np.save('hidden_states_encoder.npy', hidden_states)
-    
+
         from visualizations import plot_hidden_states
         plot_hidden_states(hidden_states=hidden_states, run_details=run_details)
         start_time_transcription= time.perf_counter()
@@ -358,7 +416,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         end_time_transcription = time.perf_counter()
         inference_time = end_time_transcription-start_time_transcription
         print(inference_time)
-        
+
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
 
@@ -367,7 +425,7 @@ def transcribe_helper(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_detai
         predictions = predict(trainer=trainer, test_dataset=test_dataset, run_details=run_details)
 
     else:
-  
+
         start_time_transcription = time.perf_counter()
         predictions = predict(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         end_time_transcription  = time.perf_counter()
@@ -424,7 +482,7 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
     predictions_flattened = flatten_list_once(predictions)
     labels_flattened = flatten_list_once(labels)
     df = create_polars_df(predictions_flattened,labels_flattened)
-    return hidden_states_np,df 
+    return hidden_states_np,df
 
 
 def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset, run_details) -> pl.DataFrame:
@@ -453,10 +511,10 @@ def predict(trainer:Seq2SeqTrainer,test_dataset:Dataset, run_details) -> pl.Data
                         outputs = model.generate(input_features = batch['input_features'].half())
                     else:
                         outputs = model.generate(input_features=batch["input_features"])
-        
+
                     #logits = outputs.logits
                     #prediction_ids = torch.argmax(logits, dim=-1) ssimple forward pass not sufficient
-                    predictions = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+                    predictions = processor.batch_decode(outputs, skip_special_tokens=True)
                     labels = processor.batch_decode(batch["labels"], skip_special_tokens=True)
                     #hidden_states = outputs.encoder_last_layer_hidden_state
                     prediction_sentences.append(predictions)
@@ -490,7 +548,7 @@ def flatten_list_once(list_to_be_flattened:list)-> list:
 def create_polars_df(decoded_sentences:list,decoded_labels:list)->pl.DataFrame:
     df = pl.DataFrame({'predictions': decoded_sentences, 'labels': decoded_labels})
     return df
-    
+
 
 
 
@@ -543,7 +601,7 @@ def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_
             compute_metrics=compute_metrics,
             tokenizer=processor.feature_extractor,
 
-         
+
             )
         # silence the warnings. Please re-enable for inference!
     else:

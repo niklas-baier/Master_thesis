@@ -53,6 +53,42 @@ class DomainDiscriminator(nn.Module):
 
     def forward(self, x):
         return self.layer(x)
+class WhisperDomainAdapter(nn.Module):
+    def __init__(self, whisper_model, discriminator, grl, device="cuda"):
+        super(WhisperDomainAdapter,self).__init__()
+        self.whisper_model = whisper_model
+        self.discriminator = discriminator
+        self.grl = grl
+        self.device = device
+
+    def forward(self, input_features, microphone_domain, labels=None, task_compute_loss=True):
+        encoder_outputs = self.whisper_model.model.encoder(input_features)
+        hidden_state = encoder_outputs.last_hidden_state
+        reversed_features = self.grl(hidden_state)
+        domain_output = self.discriminator(reversed_features)
+        domain_mean = domain_output.mean(dim=1)
+        breakpoint()
+        domain_loss_fn = nn.CrossEntropyLoss()
+        domain_mean_loss = domain_loss_fn(domain_mean, microphone_domain)
+        if task_compute_loss and labels is not None:
+            from transformers.models.whisper.modeling_whisper import shift_tokens_right
+            decoder_input_ids = shift_tokens_right(labels, self.whisper_model.config.pad_token_id, self.whisper_model.config.decoder_start_token_id)
+            decoder_output = self.whisper_model.model.decoder(input_ids=decoder_input_ids, encoder_hidden_states=hidden_state)
+            lm_logits = self.whisper_model.proj_out(decoder_output.last_hidden_state)
+            shifted_logits = lm_logits[:,:-1,:].contiguous()
+            shifted_labels = labels[:,1:].contiguous()
+            loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+            task_loss =  loss_fct(shifted_logits.view(-1, lm_logits.size(-1)), shifted_labels.view(-1))
+            return {"task_loss": task_loss, "domain_loss": domain_mean_loss, "encoder_hidden_states": hidden_state}
+        return {"domain_loss": domain_mean_loss, "encoder_hidden_states": hidden_state}
+    def generate(self, input_features, **kwargs):
+        encoder_outputs = self.whisper_model.model.encoder(input_features)
+        hidden_states = encoder_outputs.last_hidden_state
+        return self.whisper_model.generate(encoder_outputs=encoder_outputs, **kwargs)
+
+
+
+
 
 # --- 3. Model Setup ---
 def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cuda" if torch.cuda.is_available() else "cpu"):
@@ -75,7 +111,7 @@ def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cu
 
     # (Optional) Task Head: Example - Simple classifier on pooled features
     # Replace with your actual task head (e.g., transcription decoder is already in whisper_model)
-    task_head = nn.Linear(encoder_output_dim, 10).to(device) # Example: 10 classes
+    task_head = nn.Linear(encoder_output_dim, 2).to(device) # Example: 10 classes
 
     return whisper_model, discriminator, grl, task_head, device
 
@@ -104,18 +140,18 @@ def train_adversarial(whisper_model, discriminator, grl, task_head,
 
     # --- Optimizers ---
     # Parameters for the main model (feature extractor + optional task head)
-    params_main = list(whisper_model.parameters()) + list(task_head.parameters())
+    whisper_adapter = WhisperDomainAdapter(whisper_model=whisper_model, discriminator=discriminator, device=device, grl = grl)
+    params_main = list(whisper_adapter.whisper_model.parameters())
     optimizer_main = optim.AdamW(params_main, lr=lr, weight_decay=weight_decay)
 
     # Parameters for the discriminator
-    optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer_disc = optim.AdamW(whisper_adapter.discriminator.parameters(), lr=lr, weight_decay=weight_decay)
 
     # --- Loss Functions ---
     # Task Loss (Example: CrossEntropy for classification on source domain)
     criterion_task = nn.CrossEntropyLoss()
     # Domain Loss (Binary Cross Entropy for discriminating between domains A and B)
-    criterion_domain = nn.BCEWithLogitsLoss() # Handles logits directly
-
+    criterion_domain = nn.CrossEntropyLoss() # Handles logits directly
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
     print(f"Training for {num_epochs} epochs with {len_dataloader} steps per epoch.")
 
@@ -124,6 +160,7 @@ def train_adversarial(whisper_model, discriminator, grl, task_head,
         whisper_model.train()
         discriminator.train()
         task_head.train()
+        whisper_adapter.train()
 
         total_task_loss = 0.0
         total_domain_loss = 0.0
@@ -143,12 +180,13 @@ def train_adversarial(whisper_model, discriminator, grl, task_head,
 
             # --- Prepare Data ---
             # Source domain data (Domain 0)
-            inputs_A = batch_A[0].to(device) # Input features
-            labels_task_A = batch_A[1].to(device) # Task labels for source
+            breakpoint()
+            inputs_A = batch_A['input_features'].to(device) # Input features
+            labels_task_A = batch_A['labels'].to(device) # Task labels for source
             domain_labels_A = torch.zeros(inputs_A.size(0), 1, device=device, dtype=torch.float) # Domain 0
 
             # Target domain data (Domain 1)
-            inputs_B = batch_B[0].to(device) # Input features (batch size might differ)
+            inputs_B = batch_B['input_features'].to(device) # Input features (batch size might differ)
              # Task labels for target might not exist or be used in unsupervised DA
             domain_labels_B = torch.ones(inputs_B.size(0), 1, device=device, dtype=torch.float) # Domain 1
 
@@ -157,7 +195,40 @@ def train_adversarial(whisper_model, discriminator, grl, task_head,
             # We only need encoder output, `output_hidden_states=True` might be needed
             # depending on how you access intermediate layers if not the last one.
             # Using `encoder_last_hidden_state`. No decoder_input_ids needed for just encoder.
-            with torch.no_grad(): # Temporarily disable grad for parts if needed, but optimizer handles it
+            results_A = whisper_adapter(input_features=inputs_A, labels=labels_task_A, microphone_domain=domain_labels_A)
+            #results_B = whisper_adapter(input_features=inputs_B, labels=labels_task_A,domain_labels=domain_labels_B)
+            total_loss = results_A['task_loss'] + lambda_domain_loss * results_A['domain_loss']
+            total_loss.backward()
+            optimizer_main.step()
+            optimizer_disc.zero_grad()
+            #domain_preds = whisper_model./
+
+            # --- Backpropagation ---
+            # Update main model (Whisper + Task Head)
+            optimizer_main.zero_grad()
+            # Update discriminator separately
+            optimizer_disc.zero_grad()
+
+            total_loss.backward() # Gradients calculated for all parts
+
+            # Step main optimizer (Whisper + Task Head)
+            # GRL has reversed the gradient from domain_loss for Whisper params
+            optimizer_main.step()
+
+            # Step discriminator optimizer
+            # The gradient flowing *into* the discriminator from domain_loss is normal (not reversed)
+            # We detach features_reversed to ensure only discriminator is updated based on domain loss
+            # This is one way to handle it; sometimes people do separate forward passes
+            # Let's recalculate domain loss without GRL for discriminator update
+            domain_logits_disc = discriminator(features_combined.detach()) # Use detached features
+            domain_loss_disc = criterion_domain(domain_logits_disc, domain_labels_combined)
+            # We need gradients for discriminator only now
+            optimizer_disc.zero_grad()
+            domain_loss_disc.backward()
+            optimizer_disc.step()
+
+
+            with torch.no_grad():
                 outputs_A = whisper_model.model.encoder(inputs_A) # Get raw encoder outputs
             features_A = outputs_A.last_hidden_state # (batch, seq_len, hidden_dim)
 
@@ -249,7 +320,7 @@ def train_adversarial(whisper_model, discriminator, grl, task_head,
         # p = float(epoch) / num_epochs
         # lambda_ = 2. / (1. + np.exp(-10. * p)) - 1
         # grl.set_lambda(lambda_)
-        # print(f"  Set GRL lambda to: {grl.lambda_:.4f}")
+    torch.save(whisper_model.state_dict(), "whisper_model_die.pth")    # print(f"  Set GRL lambda to: {grl.lambda_:.4f}")
 
 
 # --- Main Execution ---

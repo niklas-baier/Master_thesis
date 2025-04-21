@@ -12,7 +12,7 @@ from datasets import Dataset
 pd.options.mode.copy_on_write = True
 import torchaudio
 import pprint
-from typing import List, Any, Callable, Union 
+from typing import List, Any, Callable, Union
 from sklearn.model_selection import train_test_split
 from datasets import Dataset
 from datasets import Features, Value
@@ -70,7 +70,7 @@ def setup_paths(environment:str, dataset_name:str, run_details)-> tuple[str, str
                 dataset_path=dataset_path)
             if run_details.run_notes =='facebook denoising':
                 eval_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/eval/testable_results')
-                dev_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/dev/testable_results') 
+                dev_path = os.path.join(bw_workplace_path,'facebook_denoiser/data/dev/testable_results')
             if run_details.run_notes == 'noise reduce':
                 eval_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/eval')
                 dev_path = os.path.join(bw_workplace_path,'noise_reduce/Dipco/dev')
@@ -192,7 +192,7 @@ def generate_microphone_paths(row:pd.Series,mode_path:str)-> List[str]:
          for i in range(1,2):
              path = f"{mode_path}/{row['session_id']}_{row['audio']}.CH{i}.wav"
              paths.append(path)
-    
+
     return paths
 
 
@@ -298,8 +298,8 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     # Expand the DataFrame to include the microphone paths
     dataframe = dataframe.explode('file_path').reset_index(drop=True) #doubles the size
 
-    dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1) 
-    
+    dataframe['frames'] = dataframe.apply(lambda row: get_Frames(row['start'], 16000, row['end']), axis=1)
+
     # get the maximum speaking duration
     dataframe['duration'] = dataframe.apply(lambda row: row['end'] - row['start'], axis=1)
     if dataframe['frames'].isnull().any():
@@ -334,7 +334,7 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
 
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
-    if run_details.run_notes == 'contrastive':
+    if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
         test_size  = get_next_highest_divisible_number(0.05*train_dataframe.shape[0],6)
         eval_dataframe = train_dataframe[-test_size:]
         train_dataframe = train_dataframe[:test_size]
@@ -379,7 +379,7 @@ def dipco_split_sessions(dataframe:pd.DataFrame)->tuple[pd.DataFrame, pd.DataFra
     #Implementation of ID 143
     session_ids = dataframe['session_id'].unique()
     eval_session = session_ids[0]
-    if 'S03' in session_ids:# necessary becase the unique function does not reqturn the same across devices: to compare with results on IAR-gpu 
+    if 'S03' in session_ids:# necessary becase the unique function does not reqturn the same across devices: to compare with results on IAR-gpu
         eval_session = 'S03'
     if 'S04' in session_ids:
         eval_session = 'S04'
@@ -520,7 +520,7 @@ def map_datasets(run_details:"RunDetails", train_dataset:Union[Dataset, List[Dat
     else:
         mapping_function = prepare_dataset_seq2seq
     if run_details.dataset_name == 'dipco':
-        if run_details.run_notes == 'contrastive':
+        if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
             assert isinstance(train_dataset, list)
             assert all(isinstance(x, Dataset) for x in train_dataset)
             train_dataset = [x.map(mapping_function) for x in train_dataset]
@@ -588,7 +588,7 @@ def generate_dfs(args:Namespace, run_details:Any)-> tuple[pd.DataFrame, pd.DataF
                 assert (original_size := df.shape[0]) in (3673, 3405)
                 values = eval_df['file_path'].value_counts().values
                 max_value = values.max() # the channels
-                close_samples_value_counts = np.where(values < max_value, values, 0) 
+                close_samples_value_counts = np.where(values < max_value, values, 0)
                 assert (np.sum(close_samples_value_counts) == max_value)
 
 
@@ -671,5 +671,3 @@ def remove_duplicates(df:pd.DataFrame)-> pd.DataFrame:
 
 
     return unique_df
-
-
