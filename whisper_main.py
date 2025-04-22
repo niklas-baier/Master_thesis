@@ -101,13 +101,13 @@ def main(argv):
         trainer.evaluation_strategy="no"
         start_time = time.perf_counter()
         wers = []
-        min_wer = 5
+        min_wer = 10
         counter_since_last_min = 0
         path_of_best_model = f'min_training.pth'
         for i in range(num_epochs):
             print(i)
-            trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
-
+            #trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+            trainer.args.max_steps=1
             print(trainer.args.max_steps)
             
             trainer.train()
@@ -117,6 +117,7 @@ def main(argv):
             df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
             mean_wer = df['wer'].mean()
             wers.append(mean_wer)
+            print(mean_wer)
             if(mean_wer < min_wer):
                 torch.save(trainer.model.state_dict(), path_of_best_model)
                 counter_since_last_min = 0
@@ -128,10 +129,15 @@ def main(argv):
            
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        best_model = torch.load(path_of_best_model)
+        state_dict = torch.load(path_of_best_model)
+        best_model = trainer.model
+        best_model.load_state_dict(state_dict)
         trainer.model = best_model
         wer_df = pd.DataFrame(wers)
         wer_df.to_csv('wers.csv')
+        #table = wandb.Table(columns="validation error")
+        #for wer in wers:
+           # table.add_data(wer)
 
     
         #model.push_to_hub(peft_model_id)

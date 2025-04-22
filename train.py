@@ -298,8 +298,12 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
    
-    model = WhisperForConditionalGeneration.from_pretrained(path_of_model)
-
+    model = WhisperForConditionalGeneration.from_pretrained(run_details.model_id)
+    if (run_details.checkpoint_path != ""):
+        if run_details.version == 'vanilla':
+            state_dict = torch.load(run_details.checkpoint_path)
+            model.load_state_dict(state_dict)
+    
 
     num_params = sum( p.numel() for p in model.parameters() if p.requires_grad )
 
@@ -330,6 +334,9 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         #model = create_peft(run_details)
         from peftModification import alterative_peft
         model = alterative_peft(run_details, model)
+        if (run_details.checkpoint_path != ""):
+            state_dict = torch.load(run_details.checkpoint_path)
+            model.load_state_dict(state_dict)
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
 
