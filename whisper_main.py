@@ -409,9 +409,8 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
         #print(texts[0:10])
         hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
         np.save('hidden_states_encoder.npy', hidden_states)
-
-        from visualizations import plot_hidden_states
-        plot_hidden_states(hidden_states=hidden_states, run_details=run_details)
+        from visualizations import visualize_hidden_states
+        visualize_hidden_states(hidden_states=hidden_states, run_details=run_details)
         start_time_transcription= time.perf_counter()
         #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
         end_time_transcription = time.perf_counter()

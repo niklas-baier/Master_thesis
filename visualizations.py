@@ -8,27 +8,28 @@ import re
 import ast
 import torch
 from transformers import pipeline
-
+import umap
 import wandb
 import numpy as np
-
+from sklearn.manifold import TSNE
 from augmentations import filter_p_audio, add_file_name
 from evaluation import  analysis_special_tokens
 from preprocessing import get_formated_date
 from train import RunResults, transcribe_audio
-def plot_hidden_states(hidden_states,run_details):
+def visualize_hidden_states(hidden_states,run_details):
         plot_tsne_hidden_states(hidden_states, run_details)
         plot_umap_hidden_states(hidden_states, run_details)
+        print("visualization")
       
 def plot_tsne_hidden_states(hidden_states, run_details):
-      from sklearn.manifold import TSNE
-    
-      tsne = TSNE(n_components=2, random_state=42)
-      embeddings = tsne.fit_transform(hidden_states)
-      plot_hidden_states(embeddings,"t-SNE", run_details=run_details)
+      #perplexities = [5,10,50,100,500,1000]  
+      perplexities = [10]  
+      for perplexity in perplexities:
+          tsne = TSNE(n_components=2, random_state=42, perplexity= perplexity, max_iter=5000)
+          embeddings = tsne.fit_transform(hidden_states)
+          plot_hidden_states(embeddings,f"t-SNE{perplexity}", run_details=run_details)
 
 def plot_hidden_states(embeddings, name_of_dimensionality_reduction_algorithm, run_details):
-    import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 8))
     step_size = 1127
     alpha,beta,gamma,delta, epsilon = list(range(step_size,6*step_size,step_size))
@@ -44,10 +45,18 @@ def plot_hidden_states(embeddings, name_of_dimensionality_reduction_algorithm, r
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.savefig(f'{name_of_dimensionality_reduction_algorithm}_{run_details.model_id[:5]}_{run_details.dataset_name}.png')
 def plot_umap_hidden_states(hidden_states, run_details):
-    import umap
-    reducer = umap.UMAP(n_components=2, random_state=42)
-    umap_embeddings = reducer.fit_transform(hidden_states)
-    plot_hidden_states(umap_embeddings,"UMAP", run_details=run_details)
+    n_neighbours = [5]
+    min_dist = [0.1]
+    metrics = ['cosine']
+    #n_neighbours = [5,10,20,40]
+    #min_dist = [0.001,0.01,0.1,0.5]
+    #metrics = ['cosine', 'euclidean','correlation']
+    for n in n_neighbours:
+        for dist  in min_dist:
+            for metric in metrics:
+                reducer = umap.UMAP(n_components=2, random_state=42,n_neighbors = n, min_dist=dist, metric=metric)
+                umap_embeddings = reducer.fit_transform(hidden_states)
+                plot_hidden_states(umap_embeddings,f"{n}UMAP{dist}{metric}", run_details=run_details)
 
 
 
