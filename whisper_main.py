@@ -41,6 +41,7 @@ def main(argv):
     os.chdir(script_dir)
     wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     os.environ['WANDB_PROJECT'] = 'WHISPER'
     os.environ['WAND_LOG_MODEL'] = 'true'
     torch_dtype = torch.float32 if torch.cuda.is_available() else torch.float32
@@ -95,9 +96,9 @@ def main(argv):
         collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
         clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-        whisper_model, discriminator, grl, task_head, device = setup_models(run_details.model_id)
+        whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
         from discriminator import train_adversarial
-        train_adversarial(whisper_model, discriminator, grl, task_head, dataloader_A= clean_dataloader, dataloader_B=dirty_dataloader, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN)
+        train_adversarial(whisper_model, discriminator, grl, dataloader_A= clean_dataloader, dataloader_B=dirty_dataloader, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN)
 
 
 

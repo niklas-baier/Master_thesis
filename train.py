@@ -17,7 +17,7 @@ import datasets
 import argparse
 import torch
 from datasets import Features
-from functools import cache 
+from functools import cache
 
 @dataclass(frozen=True)
 @final
@@ -40,7 +40,7 @@ class RunDetails:
     dataset_evaluation_part: str = field(default ="eval")
     beamforming: str = field(default ="N")
     num_trainable_parameters: int = 0
-    SWAD: bool = False
+    SWAD: str = field(default="N")
     diffusion: str = field(default="N")
     precision: str = field(default='full')
 
@@ -122,10 +122,10 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "dataloader_num_workers": 8,
         "dataloader_pin_memory": True
     }
-    
+
     # Adjustments for PEFT version
     if run_details.version == "peft":
-        peft_args = {   
+        peft_args = {
             "per_device_train_batch_size": train_batch_size*2,
             "per_device_eval_batch_size": per_device_eval_batch_size*2,
             "learning_rate": 1e-4,
@@ -152,7 +152,7 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         training_args = Seq2SeqTrainingArguments(**base_args, **non_peft_args)
 
     return training_args
-  
+
 
 
 @suppress_specific_warnings
@@ -297,7 +297,7 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
         path_of_model = run_details.model_id
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
-   
+
     model = WhisperForConditionalGeneration.from_pretrained(path_of_model)
 
 
@@ -333,9 +333,9 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
     elif run_details.version == "last-layer":
         model = freeze_all_layers_but_last( model )
 
-  
 
-        
+
+
     _cached_tokenizer, _cached_model, _cached_processor = tokenizer, model, processor
     return tokenizer, model, processor
 def get_cached_components() -> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq, AutoProcessor]:
@@ -356,13 +356,13 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
 
     eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
     test_features = generate_test_features(run_details)
-    test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True ) 
+    test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
     eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if run_details.developer_mode == "Y":
         eval_df = eval_df.head(100)
     if True:
 
-        if run_details.run_notes == 'contrastive':
+        if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             df_chunks = []
             for i in range(6):
@@ -388,7 +388,7 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
             dataset = dataset.remove_columns( columns_to_be_dropped )
             return dataset
         test_features = generate_test_features(run_details)
-        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True ) 
+        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
         train_dataset = datasets['train_dataset']
         if isinstance(train_dataset, List):
             train_dataset = [drop_columns(x) for x in train_dataset]
@@ -412,4 +412,3 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
             train_dataset = datasets.load_from_disk( noisy_train_dataset_path )
 
         return train_dataset, eval_dataset, test_dataset
-
