@@ -5,8 +5,8 @@ from torch.autograd import Function
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from tqdm.auto import tqdm # For progress bars
 import gc # Garbage collector
-
-# --- 1. Gradient Reversal Layer (GRL) ---
+from torch.utils.data import DataLoader, Subset
+from train import DataCollatorSpeechSeq2SeqWithPadding
 # (Keep as is - seems correct)
 class GradientReversalFunction(Function):
     @staticmethod
@@ -79,17 +79,19 @@ def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cu
     return whisper_model, discriminator, grl, device # Removed task_head
 
 # --- 5. Training Loop (Revised) ---
-def train_adversarial(whisper_model, discriminator, grl,
-                      dataloader_A, dataloader_B, device,
+def train_adversarial(whisper_model, discriminator, grl,collator,
+                      train_datasets, device,
                       num_epochs=5, lr=1e-5, weight_decay=0.01,
-                      lambda_domain_loss=0.1): # Weight for domain loss in encoder update
+                      lambda_domain_loss=0.1, BATCH_SIZE=1): # Weight for domain loss in encoder update
 
     # --- Optimizers ---
     # Optimizer for Whisper encoder + decoder/projection (main task + adversarial)
     # Filter parameters to only optimize the encoder if desired, or optimize all whisper params
     # Here we optimize all parameters of the whisper_model
+    clean_dataloader= DataLoader(train_datasets[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dirty_dataloader= DataLoader(train_datasets[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_A,dataloader_B= clean_dataloader, dirty_dataloader
     optimizer_main = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
-
     # Optimizer for the discriminator
     optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) # Use potentially different lr for disc
 
@@ -281,6 +283,7 @@ def train_adversarial(whisper_model, discriminator, grl,
     print("Training finished. Saving model...")
     # You might want to save the discriminator too, or just the adapted Whisper model
     torch.save(whisper_model.state_dict(), f"whisper_adapted_dann_{num_epochs}epochs.pth")
+    torch.save(discriminator.state_dict(), f"discriminator_dann_{num_epochs}epochs.pth")
     # torch.save(discriminator.state_dict(), "discriminator_dann.pth")
 
     print("Model saved.")

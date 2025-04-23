@@ -337,7 +337,7 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
         test_size  = get_next_highest_divisible_number(0.05*train_dataframe.shape[0],6)
         eval_dataframe = train_dataframe[-test_size:]
-        train_dataframe = train_dataframe[:test_size]
+        train_dataframe = train_dataframe[:-test_size]
     else:
         train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
     eval_dataframe.reset_index( drop=True, inplace=True )

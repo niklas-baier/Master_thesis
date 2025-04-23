@@ -72,6 +72,9 @@ def main(argv):
     #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
     training_args = generate_training_args(run_details)
+    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+    collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+
     if run_details.run_notes == 'contrastive':
 
     #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
@@ -87,8 +90,8 @@ def main(argv):
         train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
     elif run_details.run_notes == 'GAN':
         LAMBDA_DOMAIN = 0.1
-        NUM_EPOCHS =10
-        BATCH_SIZE = 8 # Adjust based on GPU memory
+        NUM_EPOCHS =20
+        BATCH_SIZE = 1 # Adjust based on GPU memory
         NUM_EPOCHS = 5
         LEARNING_RATE = 1e-5
         WEIGHT_DECAY = 0.01
@@ -98,7 +101,7 @@ def main(argv):
         dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
         from discriminator import train_adversarial
-        train_adversarial(whisper_model, discriminator, grl, dataloader_A= clean_dataloader, dataloader_B=dirty_dataloader, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN)
+        train_adversarial(whisper_model, discriminator, grl, train_datasets = train_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator= collator)
 
 
 
@@ -384,7 +387,7 @@ def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_deta
     #ID 172
 
     #results = trainer.evaluate( eval_dataset=test_dataset )
-    if run_details.version == "peft":
+    if run_details.version == "pefti":
        #model = get_peft_model(trainer, run_details)
        predictions = predict(trainer=trainer,test_dataset=test_dataset, run_details=run_details)
 
