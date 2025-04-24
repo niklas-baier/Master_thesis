@@ -363,16 +363,23 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
     test_features = generate_test_features(run_details)
     test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
     eval_df.to_csv( "shuffled_test_dataframe.csv" )
-    if run_details.developer_mode == "Y":
-        eval_df = eval_df.head(100)
     if True:
 
         if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
-            dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             df_chunks = []
-            for i in range(6):
-                chunk = expanded_df.iloc[i::6]
-                df_chunks.append(chunk)
+            if run_details.run_notes == 'GAN':
+                people_df = expanded_df.iloc[0::6]
+                non_people_df = expanded_df.loc[~expanded_df.index.isin(people_df.index)]
+                expanded_people_df = people_df.loc[people_df.index.repeat(5)].reset_index(drop=True)
+                assert(expanded_people_df.shape ==  non_people_df.shape)
+                df_chunks.append(expanded_people_df)
+                df_chunks.append(non_people_df)
+ 
+            else:
+                for i in range(6):
+                    chunk = expanded_df.iloc[i::6]
+                    df_chunks.append(chunk)
+            dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             generate_arrow_ds = partial(Hug_dataset_creation, developer_mode=run_details.developer_mode, features=features, test_dataset=False)
             arrow_ds = [generate_arrow_ds(x) for x in df_chunks]
             datasets = map_datasets( run_details=run_details, train_dataset=arrow_ds,eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
