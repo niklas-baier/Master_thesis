@@ -87,6 +87,24 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         batch["labels"] = labels
 
         return batch
+@dataclass
+class DataCollatorSpeechClassification:
+    processor: Any
+    decoder_start_token_id: int
+
+    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+        # split inputs and labels since they have to be of different lengths and need different padding methods
+        # first treat the audio inputs by simply returning torch tensors
+        breakpoint()
+        input_features = [{"input_features": feature["input_features"]} for feature in features]
+        batch = self.processor.feature_extractor.pad( input_features, return_tensors="pt" )
+        breakpoint()
+        # get the tokenized label sequences
+
+        batch["labels"] = torch.zeros((batch_shape,1))
+
+        return batch
+
 
 
 def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
@@ -371,7 +389,8 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
                 people_df = expanded_df.iloc[0::6]
                 non_people_df = expanded_df.loc[~expanded_df.index.isin(people_df.index)]
                 expanded_people_df = people_df.loc[people_df.index.repeat(5)].reset_index(drop=True)
-                assert(expanded_people_df.shape ==  non_people_df.shape)
+                if run_details.developer_mode == "N":
+                    assert(expanded_people_df.shape ==  non_people_df.shape)
                 df_chunks.append(expanded_people_df)
                 df_chunks.append(non_people_df)
  

@@ -20,8 +20,7 @@ import pandas as pd
 from logrun import log_run
 from test_Whisper import run_details_valid
 from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne, plot_validation_wer
-from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, \
-    get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
+from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, DataCollatorSpeechClassification, get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
 from config import get_parser
 import os
 import torch
@@ -40,6 +39,7 @@ def main(argv):
     # Change the current working directory to the directory where whisper_main.py is located
     os.chdir(script_dir)
     wandb.login(key ='37305846834e634f3640e818c42a90f5b26de39a')
+    wandb.init()
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     os.environ['WANDB_PROJECT'] = 'WHISPER'
@@ -74,40 +74,7 @@ def main(argv):
     training_args = generate_training_args(run_details)
     trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
     collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-
-    if run_details.run_notes == 'contrastive':
-
-    #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-        BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
-        NUM_EPOCHS = 3
-        LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
-        WEIGHT_DECAY = 0.01
-        INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
-        TEMPERATURE = 0.07 # Common temperature value for InfoNCE
-        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
-        clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-        dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-        train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
-    elif run_details.run_notes == 'GAN':
-        LAMBDA_DOMAIN = 0.1
-        NUM_EPOCHS =20
-        BATCH_SIZE = 1 # Adjust based on GPU memory
-        NUM_EPOCHS = 5
-        LEARNING_RATE = 1e-5
-        WEIGHT_DECAY = 0.01
-        LAMBDA_DOMAIN = 0.1 # How much to weight the adversarial loss
-        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
-        clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-        dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-        whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
-        from discriminator import train_adversarial
-        train_adversarial(whisper_model, discriminator, grl, train_datasets = train_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator= collator)
-
-
-
-
-    else:
-        trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
 
 
 
@@ -119,79 +86,109 @@ def main(argv):
         run_results = visualize_results(transcription_csv_path_trained, run_details)
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     else:
-        #plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
-        num_epochs = 4
-        tokenizer,_,processor = get_cached_components()
-        hidden_states = []
-        labels  = []
-        predictions = []
-        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-        test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
-        scaler = torch.amp.GradScaler("cuda")
-        if run_details.SWAD == 'Y':
-            optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.1, momentum = 0.9)
-            #scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.01, mx_lr = 0.1)
-            #from torchcontrib.optim import SWA
-            #swad = torchcontrib.optim.SWA(optimizer, swa_start=10, swa_freq=5,swa_lr = 0.05)
+        if run_details.run_notes == 'contrastive':
 
-            swa_model = torch.optim.swa_utils.AveragedModel(model)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-            swa_start = 5
-            swa_scheduler = torch.optim.swa_utils.SWALR(optimizer,anneal_strategy="linear", anneal_epochs=5, swa_lr=0.05)
-
-            for epoch in range(10):
-                model.to("cuda")
-                for batch in tqdm(test_dataloader, desc="training SWAD"):
-                    optimizer.zero_grad()
-                    with torch.amp.autocast("cuda"):
-                        outputs = model(input_features=batch['input_features'].to("cuda"), labels = batch['labels'].to("cuda"))
-                        loss = outputs.loss
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                if epoch > swa_start:
-                    swa_model.update_parameters(model)
-                    swa_scheduler.step()
-                else:
-                    scheduler.step()
-            # Update bn statistics for the swa_model at the end
-            torch.optim.swa_utils.update_bn(test_dataloader, swa_model)
-
-            # Use swa_model to make predictions on test data
-            model = swa_model
+    #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+            BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            NUM_EPOCHS = 3
+            LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
+            WEIGHT_DECAY = 0.01
+            INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
+            TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
+            clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+            dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+            breakpoint()
+            train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
+        elif run_details.run_notes == 'GAN':
+            LAMBDA_DOMAIN = 0.1
+            NUM_EPOCHS =20
+            BATCH_SIZE = 1 # Adjust based on GPU memory
+            NUM_EPOCHS = 5
+            LEARNING_RATE = 1e-5
+            WEIGHT_DECAY = 0.01
+            LAMBDA_DOMAIN = 0.1 # How much to weight the adversarial loss
+            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
+            warmup_collator= DataCollatorSpeechClassification(processor, model.config.decoder_start_token_id)
+            clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+            dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+            whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
+            from discriminator import train_adversarial
+            train_adversarial(whisper_model, discriminator, grl, train_datasets = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
         else:
-            trainer.evaluation_strategy="no"
-            start_time = time.perf_counter()
-            wers = []
-            min_wer = 5
-            counter_since_last_min = 0
-            path_of_best_model = f'min_training.pth'
-            for i in range(num_epochs):
-                print(i)
-                trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+            plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
+            num_epochs = 4
+            tokenizer,_,processor = get_cached_components()
+            hidden_states = []
+            labels  = []
+            predictions = []
+            collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+            test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
+            scaler = torch.amp.GradScaler("cuda")
+            if run_details.SWAD == 'Y':
+                optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.1, momentum = 0.9)
+                #scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.01, mx_lr = 0.1)
+                #from torchcontrib.optim import SWA
+                #swad = torchcontrib.optim.SWA(optimizer, swa_start=10, swa_freq=5,swa_lr = 0.05)
 
-                print(trainer.args.max_steps)
+                swa_model = torch.optim.swa_utils.AveragedModel(model)
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+                swa_start = 5
+                swa_scheduler = torch.optim.swa_utils.SWALR(optimizer,anneal_strategy="linear", anneal_epochs=5, swa_lr=0.05)
 
-                trainer.train()
-                validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
-                torch.cuda.empty_cache()
-                test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation))
-                df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
-                mean_wer = df['wer'].mean()
-                wers.append(mean_wer)
-                if(mean_wer < min_wer):
-                    torch.save(trainer.model.state_dict(), path_of_best_model)
-                    counter_since_last_min = 0
+                for epoch in range(10):
+                    model.to("cuda")
+                    for batch in tqdm(test_dataloader, desc="training SWAD"):
+                        optimizer.zero_grad()
+                        with torch.amp.autocast("cuda"):
+                            outputs = model(input_features=batch['input_features'].to("cuda"), labels = batch['labels'].to("cuda"))
+                            loss = outputs.loss
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    if epoch > swa_start:
+                        swa_model.update_parameters(model)
+                        swa_scheduler.step()
+                    else:
+                        scheduler.step()
+                # Update bn statistics for the swa_model at the end
+                torch.optim.swa_utils.update_bn(test_dataloader, swa_model)
+
+                # Use swa_model to make predictions on test data
+                model = swa_model
+            else:
+                trainer.evaluation_strategy="no"
+                start_time = time.perf_counter()
+                wers = []
+                min_wer = 5
+                counter_since_last_min = 0
+                path_of_best_model = f'min_training.pth'
+                for i in range(num_epochs):
+                    print(i)
+                    trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+
+                    print(trainer.args.max_steps)
+
+                    trainer.train()
+                    validation_results = validate_results(trainer=trainer, test_dataset=trainer.eval_dataset, run_details=run_details)
                     torch.cuda.empty_cache()
-                else:
-                    counter_since_last_min +=1
-                if counter_since_last_min >4:
-                    break
+                    test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation))
+                    df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
+                    mean_wer = df['wer'].mean()
+                    wers.append(mean_wer)
+                    if(mean_wer < min_wer):
+                        torch.save(trainer.model.state_dict(), path_of_best_model)
+                        counter_since_last_min = 0
+                        torch.cuda.empty_cache()
+                    else:
+                        counter_since_last_min +=1
+                    if counter_since_last_min >4:
+                        break
 
-            end_time = time.perf_counter()
-            elapsed_time = end_time - start_time
-            best_model = torch.load(path_of_best_model)
-            trainer.model = best_model
+                end_time = time.perf_counter()
+                elapsed_time = end_time - start_time
+                best_model = torch.load(path_of_best_model)
+                trainer.model = best_model
 
         #model.push_to_hub(peft_model_id)
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,
