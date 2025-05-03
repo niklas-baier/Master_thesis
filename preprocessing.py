@@ -335,11 +335,15 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
     train_dataframe = drop_columns_dipco(train_dataframe,run_details)
     test_dataframe = drop_columns_dipco(test_dataframe, run_details)
     if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
-        test_size  = get_next_highest_divisible_number(0.05*train_dataframe.shape[0],6)
+        test_size  = get_next_highest_divisible_number(0.1*train_dataframe.shape[0],6)
         eval_dataframe = train_dataframe[-test_size:]
+        contains_P = eval_dataframe['file_path'].str.contains('_P')
+        section_with_P = eval_dataframe[contains_P]
+        section_without_P = eval_dataframe[~contains_P]
+        eval_dataframe = pd.concat([section_with_P, section_without_P])
         train_dataframe = train_dataframe[:-test_size]
     else:
-        train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.05, random_state=42 )
+        train_dataframe, eval_dataframe = train_test_split( train_dataframe, test_size=0.1, random_state=42 )
     eval_dataframe.reset_index( drop=True, inplace=True )
     train_dataframe.reset_index(drop=True, inplace=True)
     test_dataframe.reset_index(drop=True, inplace=True)
