@@ -12,10 +12,14 @@ import umap
 import wandb
 import numpy as np
 from sklearn.manifold import TSNE
+from sklearn.metrics import mean_squared_error
 from augmentations import filter_p_audio, add_file_name
 from evaluation import  analysis_special_tokens
 from preprocessing import get_formated_date
 from train import RunResults, transcribe_audio
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from statsmodels.nonparametric.smoothers_lowess import lowess
 def visualize_hidden_states(hidden_states,run_details):
         plot_tsne_hidden_states(hidden_states, run_details)
         plot_umap_hidden_states(hidden_states, run_details)
@@ -60,8 +64,53 @@ def plot_umap_hidden_states(hidden_states, run_details):
 
 
 
+def approximate_loss_curve(losses):
+    x = np.arange(len(losses))
+    coeffs_quad = np.polyfit(x,y,2)
+    poly_quad = np.poly1d(coeffs_quad)
+    coeffs_linear = np.polyfit(x,y,1)
+    poly_linear = np.poly1d(coeffs_linear)
+    quad_10 = poly_quad(10)
+    quad_10000 = poly_quad(10000)
+    lin_10 = poly_linear(10)
+    lin_10000 = poly_linear(10000)
+    return {"coeff_lin": coeffs_linear, "coeffs_quad": coeffs_quad, "quad_10": quad_10, "quad_10000":quad_10000}
 
-        
+def exponential_decay(x, a, b,c):
+    return a*np.exp(-b*x)+c
+def fit_loss_function(losses):
+    x = np.arange(len(losses))
+    plt.figure(figsize=(12,8))
+    plt.plot(x, losses, 'ko', alpha=0.5, label = 'Original loss')
+    breakpoint()
+    try:
+        inital_params = [max(losses) - min(losses),0.1,min(losses)]
+        params,_ = curve_fit(exponential_decay, x, losses, p0=inital_params, maxfev=10000)
+        x_smooth = np.linspace(min(x), max(x), 10)
+        y_exp = exponential_decay(x_smooth, *params)
+        plt.plot(x_smooth, y_exp, 'r', label = f'Exponential: {params[0]:.2f}*exp(-{params[1]:.3f}*x) + {params[2]:.2f}')
+    except Exception as e:
+        print("fitting exponential function failed")
+    path_exponential = 'exponential_fitting.png'
+    path_loess = 'loess_fitting.png'
+    plt.savefig(path_exponential)
+    wandb.log({"exponential fit of the loss curve": wandb.Image(path_exponential)})
+    plt.savefig(path_loess)
+
+    try:
+        fraction = 0.4
+        loess_smoothed = lowess(losses, x, frac=fraction, it=3, return_sorted=True)
+        plt.plot(loess_smoothed[:, 0], loess_smoothed[:, 1], 'b-', linewidth=2, label=f'LOESS (fraction={fraction})')
+    except Exception as e: 
+        print("LOESS plotting failed:", e)
+
+    
+    wandb.log({"loess  fit of the loss curve": wandb.Image(path_loess)})
+    x_smooth = np.linspace(min(x), max(x), len(losses))
+    y_exp = exponential_decay(x_smooth, *params)
+    rmse = np.sqrt(mean_squared_error(np.array(losses), y_exp))
+    breakpoint()
+    
 def plot_validation_wer(list_of_wers,epochs, steps_per_epoch):
     epochs = list(range(0, steps_per_epoch*epochs, steps_per_epoch))
     plt.figure(figsize=(10,6))
