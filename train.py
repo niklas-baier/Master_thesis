@@ -95,10 +95,8 @@ class DataCollatorSpeechClassification:
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
         # split inputs and labels since they have to be of different lengths and need different padding methods
         # first treat the audio inputs by simply returning torch tensors
-        breakpoint()
         input_features = [{"input_features": feature["input_features"]} for feature in features]
         batch = self.processor.feature_extractor.pad( input_features, return_tensors="pt" )
-        breakpoint()
         # get the tokenized label sequences
 
         batch["labels"] = torch.zeros((batch_shape,1))
@@ -393,11 +391,10 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
                     assert(expanded_people_df.shape ==  non_people_df.shape)
                 df_chunks.append(expanded_people_df)
                 df_chunks.append(non_people_df)
- 
             else:
                 for i in range(6):
                     chunk = expanded_df.iloc[i::6]
-                    df_chunks.append(chunk)
+                    df_chunks.append(chunk) 
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             generate_arrow_ds = partial(Hug_dataset_creation, developer_mode=run_details.developer_mode, features=features, test_dataset=False)
             arrow_ds = [generate_arrow_ds(x) for x in df_chunks]

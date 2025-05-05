@@ -1,5 +1,7 @@
 # --- End Debugging ---
 import torch
+import wandb
+from einops import rearrange
 from torch.amp import GradScaler
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +9,7 @@ import torch.optim as optim
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from tqdm.auto import tqdm # For progress bars
 import math # For inf check
-
+from torch.utils.data import DataLoader, Subset
 # --- 1. InfoNCE Loss Function ---
 def calculate_infonce_loss(features_A, features_B, temperature=0.1, device="cpu"):
     """
@@ -130,15 +132,31 @@ def get_dataloaders(batch_size=4, processor=None):
     print(f"Dummy input feature shape: {dummy_input_features_A.shape}")
     print(f"Dummy label shape: {dummy_labels_A.shape}")
     return dataloader_A, dataloader_B
-
+def generate_contrastive_batch(counter, BATCH_SIZE, random_batch_generator, batch_B, batch_C, batch_D, batch_E, batch_F):
+    batch_indexes = random_batch_generator[counter*BATCH_SIZE:counter*BATCH_SIZE+BATCH_SIZE] 
+    arange_batch = torch.arange(0,batch_indexes.shape[0]) 
+    merged_batches = rearrange([ batch_B['input_features'], batch_C['input_features'], batch_D['input_features'], batch_E['input_features'], batch_F['input_features']], 'b o s l -> b o s l')
+    selected_tensors = [merged_batches[b.long(), s.long(),:,:] for b, s in zip(batch_indexes, arange_batch)]
+    batch_tensor = torch.cat([tensor for tensor in selected_tensors], dim=0)
+    return batch_tensor
 # --- 4. Training Loop ---
-def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
+def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH_SIZE,
         num_epochs=5, lr=5e-5, weight_decay=0.01,
         infonce_weight=0.1, temperature=0.1):
 
     # --- Optimizer ---
     optimizer = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
-    #torch.autograd.set_detect_anomaly(True)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+    random_batch_generator = torch.randint_like(torch.zeros(100000,1),low=0, high=5)
+    counter = 0
+    #torch.autograd.set_detect_anomaly(True)clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_C = DataLoader(train_dataset[2], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_D = DataLoader(train_dataset[3], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_E = DataLoader(train_dataset[4], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_F = DataLoader(train_dataset[5], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
     if len_dataloader == 0:
         print("Error: Dataloaders are empty.")
@@ -150,6 +168,7 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
     for epoch in range(num_epochs):
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
         whisper_model.train()
+        whisper_model.gradient_checkpointing_enable()
         whisper_model.to("cuda")
 
         total_standard_loss = 0.0
@@ -157,12 +176,16 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
 
         # Use zip to iterate through batches from both domains simultaneously
         # Requires dataloaders yield batches of the same size for simple pairing
-        data_iterator = iter(zip(dataloader_A, dataloader_B))
+        data_iterator = iter(zip(dataloader_A, dataloader_B,dataloader_C, dataloader_D, dataloader_E, dataloader_F))
 
         pbar = tqdm(range(len_dataloader), desc="Training Steps")
         for step in pbar:
             try:
-                batch_A, batch_B = next(data_iterator)
+                batch_A, batch_B,batch_C,batch_D, batch_E, batch_F = next(data_iterator)
+                batch_lookup_dict = { 1: batch_B, 2: batch_C, 3:batch_D, 4:batch_E, 5:batch_F}
+                batch_B['input_features'] = generate_contrastive_batch(counter=counter, BATCH_SIZE=BATCH_SIZE, random_batch_generator=random_batch_generator, batch_B=batch_B, batch_C=batch_C, batch_D=batch_D, batch_E=batch_E, batch_F=batch_F)
+                counter = counter + 1
+
             except StopIteration:
                 break
 
@@ -183,6 +206,8 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
 
                 # --- Forward Pass & Standard Loss ---
                 # Process source domain A - calculate standard transcription loss
+                
+                # --- Pooling ---
                 outputs_A = whisper_model(input_features=inputs_A, labels=labels_A)
                 standard_loss_A = outputs_A.loss # This is the seq2seq CE loss
 
@@ -205,7 +230,8 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
                 # --- Pooling ---
                 # Pool encoder features (e.g., mean pooling)
                 pooled_features_A = features_encoder_A.mean(dim=1) # (batch, hidden_dim)
-                pooled_features_B = features_encoder_B.mean(dim=1) # (batch, hidden_dim)
+                pooled_features_B = features_encoder_B.mean(dim=1) #
+                # Pool encoder features (e.g., mean pooling)
 
                 # --- InfoNCE Loss ---
                 contrastive_loss = calculate_infonce_loss(
@@ -226,7 +252,7 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
             #total_loss.backward()
             max_grad = 0.0
             has_nan_inf_grad = False
-            for param in whisper_model.parameters():
+            '''for param in whisper_model.parameters():
                 if param.grad is not None:
                     if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
                         has_nan_inf_grad = True
@@ -239,7 +265,7 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
                 print("WARNING: NaN or Inf detected in gradients!")
             #
                     # Optional: Gradient clipping
-            #torch.nn.utils.clip_grad_norm_(whisper_model.parameters(), 1.0)
+            #torch.nn.utils.clip_grad_norm_(whisper_model.parameters(), 1.0)'''
             scaler.step(optimizer)
             scaler.update()
             #optimizer.step()
@@ -247,6 +273,8 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
             # --- Logging ---
             total_standard_loss += standard_loss_A.item()
             total_contrastive_loss += contrastive_loss.item()
+            wandb.log({"epoch/avg_standard_loss": standard_loss_A.item(),"epoch/avg_contrastive_loss": contrastive_loss.item(),"epoch/avg_combined_loss": standard_loss_A.item()+ 0.1*contrastive_loss.item(),"epoch": epoch})
+                  
             #del outputs_B, outputs_A, inputs_A, inputs_B, labels_A,labels_B, features_encoder_A, features_encoder_B
 
 
@@ -266,6 +294,7 @@ def train_infonce(whisper_model, processor, dataloader_A, dataloader_B, device,
         print(f"  Avg Standard Loss (Domain A): {avg_standard_loss:.4f}")
         print(f"  Avg InfoNCE Loss: {avg_contrastive_loss:.4f}")
         torch.cuda.memory._dump_snapshot("contrastive{step}.pickle")
+        return whisper_model
 
 
 # --- Main Execution ---

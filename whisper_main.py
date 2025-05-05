@@ -48,57 +48,76 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args()
     formated_date = preprocessing.get_formated_date()
-    run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,
-                            train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,
-                            developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
+    def generate_rundetails(args):
+        run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
+        assert run_details_valid(run_details)
+        return run_details
+    run_details= generate_rundetails(args)
 
-    assert run_details_valid(run_details)
-    features = preprocessing.generate_features(run_details)
-    expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-    expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
-    dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
-    all = [expanded_df, dev_df, eval_df]
-    all_df = pd.concat(all).reset_index(drop=True)
-    #generate_audio_only(all_df)
-    tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
-    train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
-    transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
-    eval_df.to_csv(transcription_csv_path, index=False)
-    data_collator = DataCollatorSpeechSeq2SeqWithPadding(
-        processor=processor,
-        decoder_start_token_id=model.config.decoder_start_token_id,
-    )
-    metric = evaluate.load("wer")
-    #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
+    def setup(run_details,args):
 
-    training_args = generate_training_args(run_details)
-    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-    collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-    trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+        features = preprocessing.generate_features(run_details)
+        expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
+        expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+        dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+        all = [expanded_df, dev_df, eval_df]
+        all_df = pd.concat(all).reset_index(drop=True)
+        #generate_audio_only(all_df)
+        tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
+        train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
+        transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
+        eval_df.to_csv(transcription_csv_path, index=False)
+        data_collator = DataCollatorSpeechSeq2SeqWithPadding(
+            processor=processor,
+            decoder_start_token_id=model.config.decoder_start_token_id,
+        )
+        metric = evaluate.load("wer")
+        #train_batch_size, per_device_eval_batch_size, max_steps, loggings_steps,save_steps, output_dir, run_name = generate_training_args(run_details)
 
-
-
-    processor.save_pretrained(training_args.output_dir)
+        training_args = generate_training_args(run_details)
+        trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+        collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
+        trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
+        processor.save_pretrained(training_args.output_dir)
+        return trainer, train_dataset, eval_dataset, test_dataset
+    trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details,args=args)
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
-    if run_details.train_state == 'NT':
-        #TODO
+    def transcribe_visualize_log_results(test_dataset,trainer, run_details):
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
         run_results = visualize_results(transcription_csv_path_trained, run_details)
         log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
+    if run_details.train_state == 'NT':
+        #TODO
+        transcribe_visualize_log_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
     else:
         if run_details.run_notes == 'contrastive':
 
     #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-            BATCH_SIZE = 2 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
-            NUM_EPOCHS = 3
+            BATCH_SIZE = 16 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            NUM_EPOCHS = 20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
             INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
             TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+            _,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
             clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-            train_infonce(model, processor, clean_dataloader, dirty_dataloader, "cuda", num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE)
+            start_time = time.perf_counter()
+            contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator)
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
+                
+            args_copy = args
+            args_copy.run_notes = 'ntxent evaluation'
+            args_copy.train_state= 'NT'
+            run_details = generate_rundetails(args_copy)
+            trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details, args=args)
+            trainer.model = contrastive_model
+            transcribe_visualize_log_results(test_dataset=test_dataset, trainer=trainer, run_details=run_details)
+
+
+
         elif run_details.run_notes == 'GAN':
             LAMBDA_DOMAIN = 0.1
             NUM_EPOCHS =20
@@ -113,7 +132,7 @@ def main(argv):
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
             from discriminator import train_adversarial
-            train_adversarial(whisper_model, discriminator, grl,eval_dataset=eval_dataset, train_datasets = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
+            train_adversarial(whisper_model, discriminator, grl,eval_dataset=eval_dataset, train_dataset = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
         else:
             plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
             num_epochs = 4
