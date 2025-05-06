@@ -134,7 +134,7 @@ def main(argv):
             from discriminator import train_adversarial
             train_adversarial(whisper_model, discriminator, grl,eval_dataset=eval_dataset, train_dataset = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
         else:
-            plot_tsne(trainer=trainer, run_details=run_details,test_dataset=test_dataset, torch_dtype=torch_dtype,processor = processor)
+            tokenizer,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             num_epochs = 4
             tokenizer,_,processor = get_cached_components()
             hidden_states = []
@@ -183,7 +183,7 @@ def main(argv):
                 path_of_best_model = f'min_training.pth'
                 for i in range(num_epochs):
                     print(i)
-                    trainer.args.max_steps = expanded_df.shape[0]//trainer.args.per_device_train_batch_size
+                    trainer.args.max_steps = trainer.train_dataset.shape[0]//trainer.args.per_device_train_batch_size
 
                     print(trainer.args.max_steps)
 
@@ -204,8 +204,11 @@ def main(argv):
                         break
 
                 end_time = time.perf_counter()
+                breakpoint()
                 elapsed_time = end_time - start_time
-                best_model = torch.load(path_of_best_model)
+                best_dict = torch.load(path_of_best_model)
+                best_model = trainer.model
+                best_model.load_state_dict(best_dict)
                 trainer.model = best_model
 
         #model.push_to_hub(peft_model_id)

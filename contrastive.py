@@ -183,7 +183,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
             try:
                 batch_A, batch_B,batch_C,batch_D, batch_E, batch_F = next(data_iterator)
                 batch_lookup_dict = { 1: batch_B, 2: batch_C, 3:batch_D, 4:batch_E, 5:batch_F}
-                batch_B['input_features'] = generate_contrastive_batch(counter=counter, BATCH_SIZE=BATCH_SIZE, random_batch_generator=random_batch_generator, batch_B=batch_B, batch_C=batch_C, batch_D=batch_D, batch_E=batch_E, batch_F=batch_F)
+                batch_B['input_features'] = generate_contrastive_batch(counter=counter, BATCH_SIZE=batch_A['input_features'].shape[0], random_batch_generator=random_batch_generator, batch_B=batch_B, batch_C=batch_C, batch_D=batch_D, batch_E=batch_E, batch_F=batch_F)
                 counter = counter + 1
 
             except StopIteration:
@@ -242,6 +242,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
                 # --- Combine Losses ---
                 # Adjust weighting as needed
                 # Here, we only use standard loss from domain A
+                infonce_weight = 0
                 total_loss = standard_loss_A + infonce_weight * contrastive_loss
                 # Alternative: If using standard loss on both:
                 # standard_loss_B = whisper_model(input_features=inputs_B, labels=labels_B).loss
