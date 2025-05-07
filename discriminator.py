@@ -36,10 +36,11 @@ class GradientReversalLayer(nn.Module):
 # --- 2. Domain Discriminator ---
 class DomainDiscriminator(nn.Module):
     """Simple MLP Discriminator"""
-    def __init__(self, input_dim, hidden_dim=512):
+    def __init__(self, input_dim, hidden_dim=128):
         super(DomainDiscriminator, self).__init__()
         self.layer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
             # Output a single logit for Binary Cross Entropy with Logits
             nn.Linear(hidden_dim, 1)
         )
@@ -75,10 +76,10 @@ def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cu
     # No separate task_head needed if using Whisper's built-in decoder/projection
 
     return whisper_model, discriminator, grl, device # Removed task_head
-def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_dataset, device, lr=1e-5, weight_decay=0.01,lambda_domain_loss=0.1, BATCH_SIZE=1): 
+def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_dataset, device, lr=1e-5, weight_decay=0.01,lambda_domain_loss=0.1, BATCH_SIZE=1):
     warmup_losses = []
     mean_of_hidden_states = []
-    warmup_epochs = 1
+    warmup_epochs = 4
     seed = 42
     torch.manual_seed(42)
     orderings = torch.randint(0, 2, (100000,1))
@@ -87,15 +88,17 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
     counter = 0
     warmup_datasets_clean = train_datasets[0].shuffle(seed=seed).select(range(train_datasets[0].shape[0]))
     warmup_datasets_dirty = train_datasets[1].shuffle(seed=seed).select(range(train_datasets[1].shape[0]))
-    warmup_dataloader_A= DataLoader(warmup_datasets_clean, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    warmup_dataloader_B= DataLoader(warmup_datasets_dirty, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 ) 
+    warmup_dataloader_A= DataLoader(warmup_datasets_clean, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
+    warmup_dataloader_B= DataLoader(warmup_datasets_dirty, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
     ACCUMULATION_STEPS = 4
-    #optimizer_disc = optim.SGD(discriminator.parameters(), lr=1e-5) # Use potentially different lr for disc, SGD experiments showed that momemntum term is needed 
-    optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) 
-    criterion_domain = nn.BCEWithLogitsLoss(pos_weight = torch.tensor(6)) # positive samples get increased by factor 6 
+    #optimizer_disc = optim.SGD(discriminator.parameters(), lr=1e-5) # Use potentially different lr for disc, SGD experiments showed that momemntum term is needed
+    optimizer_disc = optim.AdamW(discriminator.parameters(), lr=5e-5, weight_decay=weight_decay)
+    criterion_domain = nn.BCEWithLogitsLoss() # positive samples get increased by factor 6
     len_dataloader = min(len(warmup_dataloader_A), len(warmup_dataloader_B))
     for epoch in range(warmup_epochs):
         # Use zip to iterate through both dataloaders simultaneously
+        #warmup_dataloader_A= DataLoader(warmup_datasets_clean, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
+        #warmup_dataloader_B= DataLoader(warmup_datasets_dirty, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
         data_iterator = iter(zip(warmup_dataloader_A, warmup_dataloader_B))
         pbar = tqdm(range(len_dataloader), desc=f"Epoch {epoch+1} Training")
 
@@ -104,51 +107,36 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
                 batch_A, batch_B = next(data_iterator)
                 if labels[counter,0]== 0:
                    batch_A['input_features'] = torch.cat((batch_A['input_features'], batch_B['input_features']), dim=0)
-                   combined_labels = torch.tensor([[0.0], [1.0]]).to(device) 
+                   combined_labels = torch.tensor([[0.0], [1.0]]).to(device)
+                   print("A")
                 else:
                     batch_A['input_features'] = torch.cat((batch_B['input_features'], batch_A['input_features']), dim=0)
-                    combined_labels = torch.tensor([[1.0], [0.0]]).to(device) 
-            except StopIteration:
-                break
-            with torch.no_grad():
-                hidden_states = whisper_model.model.encoder(batch_A['input_features'].to(device)).last_hidden_state
-            mean_state = torch.mean(hidden_states,dim=1)
-            mean_of_hidden_states.append(mean_state)
-            domain_classification = discriminator(mean_state)
-            warmup_classification_loss = criterion_domain(domain_classification, combined_labels.float())
-            warmup_classification_loss.backward()
-            warmup_losses.append(warmup_classification_loss.item())
-            if (step + 1) % ACCUMULATION_STEPS == 0 or (step + 1) == len_dataloader:
-                optimizer_disc.step()
-                optimizer_disc.zero_grad()  # Reset gradients
-                                                
-            counter= counter + 1
+                    combined_labels = torch.tensor([[1.0], [0.0]]).to(device)
+                    print("B")
+                with torch.no_grad():
+                    hidden_states = whisper_model.model.encoder(batch_A['input_features'].to(device)).last_hidden_state
+                mean_state = torch.mean(hidden_states,dim=1)
+                mean_of_hidden_states.append(mean_state)
+                domain_classification = discriminator(mean_state)
+                warmup_classification_loss = criterion_domain(domain_classification, combined_labels.float())
+                warmup_classification_loss.backward()
+                warmup_losses.append(warmup_classification_loss.item())
+                if (step + 1) % ACCUMULATION_STEPS == 0 or (step + 1) == len_dataloader:
+                    optimizer_disc.step()
+                    optimizer_disc.zero_grad()  # Reset gradients
+                counter = counter + 1
+            except:
+                print("weird exception occured")
+
         data = [[x,y] for x,y in zip(list(range(len(warmup_losses))), warmup_losses)]
         table = wandb.Table(data=data, columns = ['steps', "loss"])
         wandb.log({"warmup_losses": wandb.plot.line(table, "steps", "loss", title ="warmup_loss")})
-        fit_loss_function(warmup_losses)
-        mean_of_hidden_states_flattened = [item for sublist in mean_of_hidden_states for item in sublist]
-        predictions = []
-        for hidden_state in mean_of_hidden_states_flattened:
-            with torch.no_grad():
-                domain_result = discriminator(hidden_state)
-                prediction = torch.where(domain_result > 0,1 ,0)
-                predictions.append(prediction)
-        def calculate_accuracy(predictions, labels):
-            assert(predictions.shape == labels.shape)
-            result = (predictions==labels).int()
-            accuracy = torch.sum(result)/result.shape[0]
-            return accuracy
-        pred_t = torch.tensor(predictions)
-        labels = torch.zeros_like(pred_t)
-        accuracy = calculate_accuracy(pred_t, labels)
-        wandb.log({"accuracy": accuracy})
-        validation_accuracy = classify_results(whisper_model= whisper_model, discriminator=discriminator, grl=grl, collator=collator, test_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
-        print(f"validation_accuracy is {validation_accuracy}")
-        breakpoint()
-        return discriminator 
-    
-def classify_results(whisper_model, discriminator, grl,collator,test_dataset, device, lr=1e-5, weight_decay=0.01, BATCH_SIZE=1): 
+        #fit_loss_function(warmup_losses)
+    validation_accuracy = classify_results(whisper_model= whisper_model, discriminator=discriminator, grl=grl, collator=collator, test_dataset=train_datasets[0], device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
+    print(f"validation_accuracy is {validation_accuracy} warmup finished")
+    return discriminator
+
+def classify_results(whisper_model, discriminator, grl,collator,test_dataset, device, lr=1e-5, weight_decay=0.01, BATCH_SIZE=1):
     seed = 42
     torch.manual_seed(42)
     len_clean_labels = int(test_dataset.shape[0]//6)
@@ -158,8 +146,8 @@ def classify_results(whisper_model, discriminator, grl,collator,test_dataset, de
     counter = 0
     test_dataloader= DataLoader(test_dataset, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     len_dataloader = len(test_dataloader)
+    classifications = []
     for epoch in range(1):
-        classifications = []
 
         for batch in tqdm(test_dataloader, desc= "classification of eval/ test_set"):
             with torch.no_grad():
@@ -169,18 +157,20 @@ def classify_results(whisper_model, discriminator, grl,collator,test_dataset, de
                 prediction = torch.where(domain_classification > 0,1 ,0)
                 classifications.append(prediction)
                 domain_labels_A = rearrange (labels[counter,:], "b -> b 1")
-                counter= counter + 1 
+                counter= counter + 1
         def calculate_accuracy(predictions, labels):
             assert(predictions.shape == labels.shape)
             result = (predictions==labels).int()
             accuracy = torch.sum(result)/result.shape[0]
             return accuracy
         pred_t = torch.tensor(classifications)
+        print(pred_t)
+        print("evaluation")
         labels = torch.zeros_like(pred_t)
         accuracy = calculate_accuracy(pred_t, labels)
         wandb.log({"validation_accuracy_untrained": accuracy})
         return accuracy
- 
+
 
 # --- 5. Training Loop (Revised) ---
 def train_adversarial(whisper_model, discriminator, grl,collator,eval_dataset,
@@ -192,6 +182,7 @@ def train_adversarial(whisper_model, discriminator, grl,collator,eval_dataset,
     # Optimizer for Whisper encoder + decoder/projection (main task + adversarial)
     # Filter parameters to only optimize the encoder if desired, or optimize all whisper params
     # Here we optimize all parameters of the whisper_model
+    breakpoint()
     discriminator = warmup(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,train_datasets=train_datasets,eval_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay,lambda_domain_loss=lambda_domain_loss, BATCH_SIZE=BATCH_SIZE)
     accuracy = classify_results(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,test_dataset=test_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
     breakpoint()

@@ -60,6 +60,7 @@ def main(argv):
         expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
         expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
         dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+        #expanded_df.to_csv('expanded_df.csv', index=False) the same across multiple iterations
         all = [expanded_df, dev_df, eval_df]
         all_df = pd.concat(all).reset_index(drop=True)
         #generate_audio_only(all_df)
@@ -107,7 +108,7 @@ def main(argv):
             contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator)
             end_time = time.perf_counter()
             elapsed_time = end_time - start_time
-                
+
             args_copy = args
             args_copy.run_notes = 'ntxent evaluation'
             args_copy.train_state= 'NT'
@@ -126,13 +127,14 @@ def main(argv):
             LEARNING_RATE = 1e-5
             WEIGHT_DECAY = 0.01
             LAMBDA_DOMAIN = 0.1 # How much to weight the adversarial loss
+            _,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
             warmup_collator= DataCollatorSpeechClassification(processor, model.config.decoder_start_token_id)
             clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             whisper_model, discriminator, grl, device = setup_models(run_details.model_id)
             from discriminator import train_adversarial
-            train_adversarial(whisper_model, discriminator, grl,eval_dataset=eval_dataset, train_dataset = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
+            train_adversarial(whisper_model, discriminator, grl,eval_dataset=eval_dataset, train_datasets = train_dataset, test_dataset=test_dataset, device=run_details.device,num_epochs=NUM_EPOCHS, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,lambda_domain_loss=LAMBDA_DOMAIN, BATCH_SIZE= BATCH_SIZE, collator=collator)
         else:
             tokenizer,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             num_epochs = 4
@@ -204,7 +206,6 @@ def main(argv):
                         break
 
                 end_time = time.perf_counter()
-                breakpoint()
                 elapsed_time = end_time - start_time
                 best_dict = torch.load(path_of_best_model)
                 best_model = trainer.model
