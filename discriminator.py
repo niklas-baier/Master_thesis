@@ -3,7 +3,10 @@ from einops import rearrange
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Function
+from transcribe import transcribe_results
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
+from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
+    TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 from tqdm.auto import tqdm # For progress bars
 import gc # Garbage collector
 from torch.utils.data import DataLoader, Subset
@@ -79,7 +82,7 @@ def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cu
 def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_dataset, device, lr=1e-5, weight_decay=0.01,lambda_domain_loss=0.1, BATCH_SIZE=1):
     warmup_losses = []
     mean_of_hidden_states = []
-    warmup_epochs = 4
+    warmup_epochs = 100
     seed = 42
     torch.manual_seed(42)
     orderings = torch.randint(0, 2, (100000,1))
@@ -91,9 +94,12 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
     warmup_dataloader_A= DataLoader(warmup_datasets_clean, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
     warmup_dataloader_B= DataLoader(warmup_datasets_dirty, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
     ACCUMULATION_STEPS = 4
+    best_dict_path =  'early_stopping_simple_disc.pth'
     #optimizer_disc = optim.SGD(discriminator.parameters(), lr=1e-5) # Use potentially different lr for disc, SGD experiments showed that momemntum term is needed
     optimizer_disc = optim.AdamW(discriminator.parameters(), lr=5e-5, weight_decay=weight_decay)
     criterion_domain = nn.BCEWithLogitsLoss() # positive samples get increased by factor 6
+    classification_accuracy_counter = 0
+    validation_accuracy = classify_results(whisper_model= whisper_model, discriminator=discriminator, grl=grl, collator=collator, test_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
     len_dataloader = min(len(warmup_dataloader_A), len(warmup_dataloader_B))
     for epoch in range(warmup_epochs):
         # Use zip to iterate through both dataloaders simultaneously
@@ -101,6 +107,8 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
         #warmup_dataloader_B= DataLoader(warmup_datasets_dirty, batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2, drop_last=True )
         data_iterator = iter(zip(warmup_dataloader_A, warmup_dataloader_B))
         pbar = tqdm(range(len_dataloader), desc=f"Epoch {epoch+1} Training")
+        if classification_accuracy_counter > 5:
+            break
 
         for step in pbar:
             try:
@@ -108,11 +116,9 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
                 if labels[counter,0]== 0:
                    batch_A['input_features'] = torch.cat((batch_A['input_features'], batch_B['input_features']), dim=0)
                    combined_labels = torch.tensor([[0.0], [1.0]]).to(device)
-                   print("A")
                 else:
                     batch_A['input_features'] = torch.cat((batch_B['input_features'], batch_A['input_features']), dim=0)
                     combined_labels = torch.tensor([[1.0], [0.0]]).to(device)
-                    print("B")
                 with torch.no_grad():
                     hidden_states = whisper_model.model.encoder(batch_A['input_features'].to(device)).last_hidden_state
                 mean_state = torch.mean(hidden_states,dim=1)
@@ -127,13 +133,21 @@ def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_datase
                 counter = counter + 1
             except:
                 print("weird exception occured")
-
         data = [[x,y] for x,y in zip(list(range(len(warmup_losses))), warmup_losses)]
         table = wandb.Table(data=data, columns = ['steps', "loss"])
         wandb.log({"warmup_losses": wandb.plot.line(table, "steps", "loss", title ="warmup_loss")})
         #fit_loss_function(warmup_losses)
-    validation_accuracy = classify_results(whisper_model= whisper_model, discriminator=discriminator, grl=grl, collator=collator, test_dataset=train_datasets[0], device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
+        new_validation_accuracy = classify_results(whisper_model= whisper_model, discriminator=discriminator, grl=grl, collator=collator, test_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
+        if new_validation_accuracy  >= validation_accuracy:
+            print("higher validation accuracy")
+            validation_accuracy = new_validation_accuracy
+            torch.save(discriminator.state_dict(), best_dict_path)
+            classification_accuracy_counter = 0
+        else:
+            classification_accuracy_counter = classification_accuracy_counter + 1
+
     print(f"validation_accuracy is {validation_accuracy} warmup finished")
+    discriminator.load_state_dict(torch.load(best_dict_path))
     return discriminator
 
 def classify_results(whisper_model, discriminator, grl,collator,test_dataset, device, lr=1e-5, weight_decay=0.01, BATCH_SIZE=1):
@@ -173,8 +187,8 @@ def classify_results(whisper_model, discriminator, grl,collator,test_dataset, de
 
 
 # --- 5. Training Loop (Revised) ---
-def train_adversarial(whisper_model, discriminator, grl,collator,eval_dataset,
-                      train_datasets, test_dataset, device,
+def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
+                      train_datasets, test_dataset, device,run_details,
                       num_epochs=2, lr=1e-5, weight_decay=0.01,
                       lambda_domain_loss=0.1, BATCH_SIZE=1): # Weight for domain loss in encoder update
 
@@ -182,10 +196,9 @@ def train_adversarial(whisper_model, discriminator, grl,collator,eval_dataset,
     # Optimizer for Whisper encoder + decoder/projection (main task + adversarial)
     # Filter parameters to only optimize the encoder if desired, or optimize all whisper params
     # Here we optimize all parameters of the whisper_model
-    breakpoint()
+    whisper_model = trainer.model
     discriminator = warmup(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,train_datasets=train_datasets,eval_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay,lambda_domain_loss=lambda_domain_loss, BATCH_SIZE=BATCH_SIZE)
     accuracy = classify_results(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,test_dataset=test_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
-    breakpoint()
     optimizer_main = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) # Use potentially different lr for disc
     criterion_task = nn.CrossEntropyLoss(ignore_index=-100) # Use Whisper's default ignore index
@@ -195,9 +208,10 @@ def train_adversarial(whisper_model, discriminator, grl,collator,eval_dataset,
     dataloader_A, dataloader_B = clean_dataloader, dirty_dataloader
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
     print(f"Training for {num_epochs} epochs with {len_dataloader} steps per epoch.")
-
-
+    base_wer = 100
     for epoch in range(num_epochs):
+        mean_wer = transcribe_results(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
+        breakpoint()
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
         whisper_model.train()
         discriminator.train()

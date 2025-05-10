@@ -24,12 +24,12 @@ def visualize_hidden_states(hidden_states,run_details):
         plot_tsne_hidden_states(hidden_states, run_details)
         plot_umap_hidden_states(hidden_states, run_details)
         print("visualization")
-      
+
 def plot_tsne_hidden_states(hidden_states, run_details):
-      #perplexities = [5,10,50,100,500,1000]  
-      perplexities = [10]  
+      #perplexities = [5,10,50,100,500,1000]
+      perplexities = [10]
       for perplexity in perplexities:
-          tsne = TSNE(n_components=2, random_state=42, perplexity= perplexity, max_iter=5000)
+          tsne = TSNE(n_components=2, random_state=42, perplexity= perplexity)
           embeddings = tsne.fit_transform(hidden_states)
           plot_hidden_states(embeddings,f"t-SNE{perplexity}", run_details=run_details)
 
@@ -82,7 +82,6 @@ def fit_loss_function(losses):
     x = np.arange(len(losses))
     plt.figure(figsize=(12,8))
     plt.plot(x, losses, 'ko', alpha=0.5, label = 'Original loss')
-    breakpoint()
     try:
         inital_params = [max(losses) - min(losses),0.1,min(losses)]
         params,_ = curve_fit(exponential_decay, x, losses, p0=inital_params, maxfev=10000)
@@ -101,16 +100,15 @@ def fit_loss_function(losses):
         fraction = 0.4
         loess_smoothed = lowess(losses, x, frac=fraction, it=3, return_sorted=True)
         plt.plot(loess_smoothed[:, 0], loess_smoothed[:, 1], 'b-', linewidth=2, label=f'LOESS (fraction={fraction})')
-    except Exception as e: 
+    except Exception as e:
         print("LOESS plotting failed:", e)
 
-    
+
     wandb.log({"loess  fit of the loss curve": wandb.Image(path_loess)})
     x_smooth = np.linspace(min(x), max(x), len(losses))
     y_exp = exponential_decay(x_smooth, *params)
     rmse = np.sqrt(mean_squared_error(np.array(losses), y_exp))
-    breakpoint()
-    
+
 def plot_validation_wer(list_of_wers,epochs, steps_per_epoch):
     epochs = list(range(0, steps_per_epoch*epochs, steps_per_epoch))
     plt.figure(figsize=(10,6))
@@ -464,6 +462,3 @@ def convert_path(p_path):
     directory, filename = ...
     modified_path = ...
     return modified_path
-
-
-
