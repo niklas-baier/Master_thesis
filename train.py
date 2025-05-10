@@ -132,7 +132,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "logging_steps": loggings_steps,
         "remove_unused_columns": True,
         "eval_accumulation_steps": 4,
-        "report_to": 'wandb',
         "metric_for_best_model": "wer",
         "greater_is_better": False,
         "dataloader_num_workers": 8,
@@ -389,12 +388,21 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
                 expanded_people_df = people_df.loc[people_df.index.repeat(5)].reset_index(drop=True)
                 if run_details.developer_mode == "N":
                     assert(expanded_people_df.shape ==  non_people_df.shape)
+                else:
+                    people_df = expanded_df[expanded_df['file_path'].str.contains('_P')]
+                    non_people_df = expanded_df[~expanded_df['file_path'].str.contains('_P')]
+                    multiple = non_people_df.shape[0]// people_df.shape[0]
+                    remainder = non_people_df.shape[0]% people_df.shape[0]
+                    expanded_people_df = people_df.loc[people_df.index.repeat(multiple)].reset_index(drop=True)
+                    if remainder > 0:
+                        expanded_people_df = pd.concat([expanded_people_df, people_df.iloc[:remainder]], ignore_index=True)
+
                 df_chunks.append(expanded_people_df)
                 df_chunks.append(non_people_df)
             else:
                 for i in range(6):
                     chunk = expanded_df.iloc[i::6]
-                    df_chunks.append(chunk) 
+                    df_chunks.append(chunk)
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             generate_arrow_ds = partial(Hug_dataset_creation, developer_mode=run_details.developer_mode, features=features, test_dataset=False)
             arrow_ds = [generate_arrow_ds(x) for x in df_chunks]

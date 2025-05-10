@@ -251,6 +251,29 @@ def plot_histograms(data, run_details):
     plt.grid( True )
     plt.savefig( hist_path, format='png' )
 
+def calculate_mean_wer(transcription_csv_path):
+    from evaluation import chime_normalisation
+    data = pd.read_csv( transcription_csv_path )
+    # dataset = dataset.map(lambda example: {'normalized_ref': chime_normalisation(example['words'])})
+    data['results'] = data['results'].astype( str )
+
+    data['chime_ref'] = [chime_normalisation( text ) for text in data["words"]]
+    data['chime_hyp'] = [chime_normalisation( text ) for text in data["results"]]
+    data = data[data['chime_ref'] != ""]
+    # only counting the data that is not empty to the WER as it is otherwise undefined ?
+    wer = jiwer.wer( list( data["chime_ref"] ), list( data["chime_hyp"] ) )
+    # WER of the whisper normalizer
+    print( f"WER: {wer * 100:.2f} %" )
+
+    print( data.sample( n=10 ) )
+    data['wer'] = data.apply(
+        lambda row: meeteval.wer.wer.siso.siso_word_error_rate(
+            reference=row['chime_ref'],
+            hypothesis=row['chime_hyp']
+            ).error_rate,
+        axis=1
+        )
+    return data['wer'].mean()
 
 def visualize_results(transcription_csv_path, run_details):
     # implementation of ID: 127

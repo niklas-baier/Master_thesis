@@ -12,7 +12,7 @@ import gc # Garbage collector
 from torch.utils.data import DataLoader, Subset
 from train import DataCollatorSpeechSeq2SeqWithPadding
 import wandb
-from visualizations import exponential_decay, fit_loss_function
+from visualizations import exponential_decay, fit_loss_function, calculate_mean_wer
 # (Keep as is - seems correct)
 class GradientReversalFunction(Function):
     @staticmethod
@@ -197,7 +197,7 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
     # Filter parameters to only optimize the encoder if desired, or optimize all whisper params
     # Here we optimize all parameters of the whisper_model
     whisper_model = trainer.model
-    discriminator = warmup(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,train_datasets=train_datasets,eval_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay,lambda_domain_loss=lambda_domain_loss, BATCH_SIZE=BATCH_SIZE)
+    #discriminator = warmup(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,train_datasets=train_datasets,eval_dataset=eval_dataset, device=device, lr=lr, weight_decay=weight_decay,lambda_domain_loss=lambda_domain_loss, BATCH_SIZE=BATCH_SIZE)
     accuracy = classify_results(whisper_model=whisper_model, discriminator=discriminator, grl=grl,collator=collator,test_dataset=test_dataset, device=device, lr=lr, weight_decay=weight_decay, BATCH_SIZE=BATCH_SIZE)
     optimizer_main = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
     optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) # Use potentially different lr for disc
@@ -207,11 +207,26 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
     dirty_dataloader= DataLoader(train_datasets[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     dataloader_A, dataloader_B = clean_dataloader, dirty_dataloader
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
+    early_stopping_discriminative_model_path = 'best_discriminative_model.pth'
+    early_stopping_discriminator_path = 'best_discriminator.pth'
     print(f"Training for {num_epochs} epochs with {len_dataloader} steps per epoch.")
+    early_stopping_discriminative_counter = 0
     base_wer = 100
     for epoch in range(num_epochs):
-        mean_wer = transcribe_results(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
-        breakpoint()
+        transcription_path = transcribe_results(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
+        mean_validation_wer = calculate_mean_wer(transcription_path)
+        if mean_validation_wer <= base_wer:
+            wandb.log({"mean_validation_wer": mean_validation_wer})
+            base_wer = mean_validation_wer
+            early_stopping_discriminative_counter = 0
+            torch.save(whisper_model.state_dict(),early_stopping_discriminative_model_path)
+            torch.save(discriminator.state_dict(), early_stopping_discriminator_path)
+        else:
+            early_stopping_discriminative_counter = early_stopping_discriminative_counter + 1
+        if early_stopping_discriminative_counter >=5:
+            whisper_model.load_state_dict(early_stopping_discriminative_model_path)
+            return whisper_model
+
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
         whisper_model.train()
         discriminator.train()
@@ -389,8 +404,8 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
     # --- Save Model ---
     print("Training finished. Saving model...")
     # You might want to save the discriminator too, or just the adapted Whisper model
-    torch.save(whisper_model.state_dict(), f"whisper_adapted_dann_{epoch}epochs.pth")
-    torch.save(discriminator.state_dict(), f"discriminator_dann_{epoch}epochs.pth")
+    #torch.save(whisper_model.state_dict(), f"whisper_adapted_dann_{epoch}epochs.pth")
+    #torch.save(discriminator.state_dict(), f"discriminator_dann_{epoch}epochs.pth")
     # torch.save(discriminator.state_dict(), "discriminator_dann.pth")
 
     print("Model saved.")
