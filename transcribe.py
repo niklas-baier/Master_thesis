@@ -11,44 +11,32 @@ from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallba
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 
 from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, DataCollatorSpeechClassification, get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
+def transcribe_evaluation(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) -> str:
+    predictions = predict(trainer=trainer,test_dataset=test_dataset, run_details=run_details)
+    transcription_path = transcribe_evaluation(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
+    predictions = predictions.rename({'labels': 'words', 'predictions': 'results'})
+    prediction_path = 'eval_ds.csv'
+    predictions.write_csv(prediction_path)
+    mean_validation_wer = calculate_mean_wer(prediction_path)
+    return predictions, mean_validation_wer
+
+
 def transcribe_results(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) -> str:
 
     #ID 172
-
-    #results = trainer.evaluate( eval_dataset=test_dataset )
-    if run_details.version == "pefti":
-       #model = get_peft_model(trainer, run_details)
-       predictions = predict(trainer=trainer,test_dataset=test_dataset, run_details=run_details)
-
-       '''
-       total_size = len(test_dataset)
-       part_size = total_size // 20
-       #create 20 slices
-       lazy_parts = [test_dataset.select(range(i * part_size, (i + 1) * part_size))for i in range(20)]
-       if total_size % 20 != 0:
-           lazy_parts[-1] = test_dataset.select(range(19 * part_size, total_size))
-       predictions = [predict_logits_and_get_strings_from_them(trainer,x) for x in lazy_parts]
-       predictions = pl.concat(predictions, how='vertical')
-       print("hi")'''
-
-
-
-    else:
-
-        #breakpoint()
-        #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
-        #texts = [segment.text for segment in segments]
-        #print(texts[0:10])
-        hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
-        np.save('hidden_states_encoder.npy', hidden_states)
-        from visualizations import visualize_hidden_states
-        visualize_hidden_states(hidden_states=hidden_states, run_details=run_details)
-        start_time_transcription= time.perf_counter()
-        #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
-        end_time_transcription = time.perf_counter()
-        inference_time = end_time_transcription-start_time_transcription
-        print(inference_time)
-
+    #breakpoint()
+    #segments, info = model.transcribe("audio.mp3", beam_size=5, language="en", condition_on_previous_text=False)
+    #texts = [segment.text for segment in segments]
+    #print(texts[0:10])
+    hidden_states,predictions = get_hidden_states(trainer=trainer, test_dataset = test_dataset, run_details=run_details)
+    np.save('hidden_states_encoder.npy', hidden_states)
+    from visualizations import visualize_hidden_states
+    visualize_hidden_states(hidden_states=hidden_states, run_details=run_details)
+    start_time_transcription= time.perf_counter()
+    #predictions = predict( trainer=trainer, test_dataset=test_dataset, run_details=run_details )
+    end_time_transcription = time.perf_counter()
+    inference_time = end_time_transcription-start_time_transcription
+    print(inference_time)
     path = save_evaluation_results_as_csv( run_details, results=predictions )
     return path
 
@@ -94,7 +82,7 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
     model.config.output_hidden_states = True # return also the hidden states#
     model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
 
-    for batch in tqdm(test_dataloader, desc = "tsne-visualization"):
+    for batch in tqdm(test_dataloader, desc = "get_hidden_states"):
         with torch.no_grad():
             batch.to("cuda")
             if run_details.precision == 'half':

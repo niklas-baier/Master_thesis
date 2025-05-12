@@ -395,7 +395,6 @@ def compute_chime_metrics(pred:EvalPrediction)->dict:
         # Example evaluation results
         chime_normalized_reference = [evaluation.chime_normalisation( reference ) for reference in label_str]
         chime_normalized_prediction = [evaluation.chime_normalisation( pred ) for pred in pred_str]
-        breakpoint()
 
         # wer = 100 * metric.compute(predictions=chime_normalized_prediction, references=chime_normalized_reference)
         #wer = jiwer.wer( hypothesis=list( chime_normalized_prediction ), reference=list( chime_normalized_reference ) )
