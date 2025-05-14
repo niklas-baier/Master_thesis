@@ -95,7 +95,9 @@ def main(argv):
         if run_details.run_notes == 'contrastive':
 
     #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-            BATCH_SIZE = 16 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            BATCH_SIZE = 64 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            if run_details.environment == 'bwcluster':
+                BATCH_SIZE = 16
             NUM_EPOCHS = 20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
@@ -106,7 +108,7 @@ def main(argv):
             clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             start_time = time.perf_counter()
-            contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator)
+            contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,eval_dataset=eval_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator, trainer=trainer, run_details=run_details)
             end_time = time.perf_counter()
             elapsed_time = end_time - start_time
 

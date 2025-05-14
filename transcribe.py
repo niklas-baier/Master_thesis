@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader, Subset
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, TrainerCallback, TrainingArguments, TrainerState, \
     TrainerControl, WhisperForConditionalGeneration, EarlyStoppingCallback, Trainer
 
+from visualizations import exponential_decay, fit_loss_function, calculate_mean_wer
 from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, DataCollatorSpeechClassification, get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
 def transcribe_evaluation(*, test_dataset:Dataset, trainer:Seq2SeqTrainer, run_details:RunDetails) -> str:
     predictions = predict(trainer=trainer,test_dataset=test_dataset, run_details=run_details)
-    transcription_path = transcribe_evaluation(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
     predictions = predictions.rename({'labels': 'words', 'predictions': 'results'})
     prediction_path = 'eval_ds.csv'
     predictions.write_csv(prediction_path)

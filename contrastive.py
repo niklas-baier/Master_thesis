@@ -1,5 +1,6 @@
 # --- End Debugging ---
 import torch
+from transcribe import transcribe_evaluation
 import wandb
 import meeteval
 import numpy as np
@@ -14,6 +15,7 @@ from tqdm.auto import tqdm # For progress bars
 import math # For inf check
 from torch.utils.data import DataLoader, Subset
 from train import get_cached_components
+from visualizations import exponential_decay, fit_loss_function, calculate_mean_wer
 # --- 1. InfoNCE Loss Function ---
 def calculate_infonce_loss(features_A, features_B, temperature=0.1, device="cpu"):
     """
@@ -143,12 +145,12 @@ def generate_contrastive_batch(counter, BATCH_SIZE, random_batch_generator, batc
     batch_tensor = torch.cat([tensor for tensor in selected_tensors], dim=0)
     return batch_tensor
 # --- 4. Training Loop ---
-def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH_SIZE,
+def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset, device,BATCH_SIZE,trainer,run_details,
         num_epochs=5, lr=5e-5, weight_decay=0.01,
         infonce_weight=0.1, temperature=0.1):
 
     # --- Optimizer ---
-    pre_sim = asses_similarity(whisper_model=whisper_model, processor=processor, collator=collator, train_dataset=train_dataset,device=device,BATCH_SIZE=BATCH_SIZE,num_epochs=1)
+    #pre_sim = asses_similarity(whisper_model=whisper_model, processor=processor, collator=collator, train_dataset=train_dataset,device=device,BATCH_SIZE=BATCH_SIZE,num_epochs=1)
     optimizer = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
@@ -158,6 +160,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
     # establish baseline
     base_results, base_wer = evaluate_dataset(whisper_model=whisper_model, dataset= train_dataset[0],BATCH_SIZE=BATCH_SIZE, collator=collator, device=device)
     print(f"base_wer is {base_wer}")
+    early_stopping_contrastive_model_path= 'contrastive_early.pth'
 
     dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
@@ -178,9 +181,31 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
         whisper_model.train()
         whisper_model.gradient_checkpointing_enable()
         whisper_model.to("cuda")
-
+        dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dataloader_C = DataLoader(train_dataset[2], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dataloader_D = DataLoader(train_dataset[3], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dataloader_E = DataLoader(train_dataset[4], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        dataloader_F = DataLoader(train_dataset[5], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+        len_dataloader = min(len(dataloader_A), len(dataloader_B))
+    
         total_standard_loss = 0.0
         total_contrastive_loss = 0.0
+        _, mean_validation_wer = transcribe_evaluation(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
+        if mean_validation_wer <= base_wer:
+            wandb.log({"mean_validation_wer": mean_validation_wer})
+            base_wer = mean_validation_wer
+            early_stopping_discriminative_counter = 0
+            torch.save(whisper_model.state_dict(),early_stopping_contrastive_model_path)
+        else:
+            wandb.log({"mean_validation_wer": mean_validation_wer})
+            early_stopping_discriminative_counter = early_stopping_discriminative_counter + 1
+        if early_stopping_discriminative_counter >=5:
+            whisper_model.load_state_dict(early_stopping_discriminative_model_path)
+            print("exiting contrastive loss")
+            return whisper_model
+
+
 
         # Use zip to iterate through batches from both domains simultaneously
         # Requires dataloaders yield batches of the same size for simple pairing
@@ -250,7 +275,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
                 # --- Combine Losses ---
                 # Adjust weighting as needed
                 # Here, we only use standard loss from domain A
-                infonce_weight = 10
+                infonce_weight = 1
                 total_loss = standard_loss_A + infonce_weight * contrastive_loss
                 # Alternative: If using standard loss on both:
                 # standard_loss_B = whisper_model(input_features=inputs_B, labels=labels_B).loss
@@ -302,12 +327,11 @@ def train_infonce(whisper_model, processor,collator, train_dataset, device,BATCH
         print(f"Epoch {epoch+1} Summary:")
         print(f"  Avg Standard Loss (Domain A): {avg_standard_loss:.4f}")
         print(f"  Avg InfoNCE Loss: {avg_contrastive_loss:.4f}")
-        torch.cuda.memory._dump_snapshot("contrastive{step}.pickle")
-    results, mean_wer = evaluate_dataset(whisper_model=whisper_model, dataset= train_dataset[0],BATCH_SIZE=BATCH_SIZE, collator=collator, device=device)
-    print(f'comparison after training {mean_wer} to pretraining {base_wer}')
-    after_sim = asses_similarity(whisper_model=whisper_model, processor=processor, collator=collator, train_dataset=train_dataset,device=device,BATCH_SIZE=BATCH_SIZE,num_epochs=1)
-    print(f'comparison after training {after_sim} to pretraining {pre_sim}')
-    breakpoint()
+        #torch.cuda.memory._dump_snapshot("contrastive{step}.pickle")
+    #results, mean_wer = evaluate_dataset(whisper_model=whisper_model, dataset= train_dataset[0],BATCH_SIZE=BATCH_SIZE, collator=collator, device=device)
+   # print(f'comparison after training {mean_wer} to pretraining {base_wer}')
+    #after_sim = asses_similarity(whisper_model=whisper_model, processor=processor, collator=collator, train_dataset=train_dataset,device=device,BATCH_SIZE=BATCH_SIZE,num_epochs=1)
+   # print(f'comparison after training {after_sim} to pretraining {pre_sim}')
     return whisper_model
 
 def asses_similarity(whisper_model, processor,collator, train_dataset, device,BATCH_SIZE,

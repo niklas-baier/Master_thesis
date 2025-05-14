@@ -10,12 +10,12 @@ CUDA_LAUNCH_BLOCKING=1 CUDA_VISIBLE_DEVICES=0 python3 ../whisper_main.py --datas
                    --developer_mode "N" \
                    --augmentation "N" \
                    --additional_tokens "N"\
-                   --run_notes "storm"\
+                   --run_notes "contrastive"\
 		   --dataset_evaluation_part "eval"\
 		   --oversampling_clean_data 1\
                    --data_portion "all"\
 		   --beamforming "N"\
-		   --SWAD False\
+		   --SWAD "N"\
 		   --diffusion "N" \
 		   --checkpoint ""
 
