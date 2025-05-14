@@ -13,6 +13,9 @@ from torch.utils.data import DataLoader, Subset
 from train import DataCollatorSpeechSeq2SeqWithPadding
 import wandb
 from visualizations import exponential_decay, fit_loss_function, calculate_mean_wer
+from tqdm.auto import tqdm 
+import gc 
+from torch.utils.data import DataLoader, Subset
 class GradientReversalFunction(Function):
     @staticmethod
     def forward(ctx, x, lambda_):
@@ -48,23 +51,16 @@ class DomainDiscriminator(nn.Module):
         )
 
     def forward(self, x):
-        # Ensure input is flattened if necessary (e.g., after pooling)
-        # Assuming input x is already [batch_size, input_dim]
+        # Ensure input is flattened if necessary 
         return self.layer(x)
 
-# --- 3. Whisper Domain Adapter Wrapper (Simplified - focus on components) ---
-# We won't use a complex wrapper for forward pass logic,
-# instead handling it in the training loop for clarity.
-# We'll pass the individual components to the training function.
 
 # --- 4. Model Setup ---
 def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cuda" if torch.cuda.is_available() else "cpu"):
     print(f"Using device: {device}")
 
-    # Load Whisper model
+    # Load model
     whisper_model = WhisperForConditionalGeneration.from_pretrained(whisper_model_name).to(device)
-    # We might need the processor later for data prep or generation
-    # processor = WhisperProcessor.from_pretrained(whisper_model_name)
 
     # Determine the dimensionality of Whisper encoder's output
     encoder_output_dim = whisper_model.config.d_model
@@ -73,9 +69,8 @@ def setup_models(whisper_model_name="distil-whisper/distil-large-v3", device="cu
     discriminator = DomainDiscriminator(input_dim=encoder_output_dim).to(device)
 
     # Create the Gradient Reversal Layer
-    grl = GradientReversalLayer(lambda_=1.0) # Lambda can be adjusted/scheduled
+    grl = GradientReversalLayer(lambda_=1.0) #TODO Lambda can be adjusted/scheduled
 
-    # No separate task_head needed if using Whisper's built-in decoder/projection
 
     return whisper_model, discriminator, grl, device # Removed task_head
 def warmup(whisper_model, discriminator, grl,collator,train_datasets,eval_dataset, device, lr=1e-5, weight_decay=0.01,lambda_domain_loss=0.1, BATCH_SIZE=1):
@@ -186,10 +181,8 @@ def classify_results(whisper_model, discriminator, grl,collator,test_dataset, de
 
 
 # --- 5. Training Loop (Revised) ---
-def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
-                      train_datasets, test_dataset, device,run_details,
-                      num_epochs=2, lr=1e-5, weight_decay=0.01,
-                      lambda_domain_loss=0.1, BATCH_SIZE=1): # Weight for domain loss in encoder update
+def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,train_datasets, test_dataset, device,run_details,num_epochs=2, lr=1e-5, weight_decay=0.01,lambda_domain_loss=0.1, BATCH_SIZE=1): # Weight for domain loss in encoder update
+    return whisper_model, discriminator, grl, device
 
     # --- Optimizers ---
     # Optimizer for Whisper encoder + decoder/projection (main task + adversarial)
@@ -202,9 +195,20 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
     optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) # Use potentially different lr for disc
     criterion_task = nn.CrossEntropyLoss(ignore_index=-100) # Use Whisper's default ignore index
     criterion_domain = nn.BCEWithLogitsLoss()
+    # TODO Filter parameters to only optimize the encoder,or optimize all whisper params ?
     clean_dataloader= DataLoader(train_datasets[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     dirty_dataloader= DataLoader(train_datasets[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_A, dataloader_B = clean_dataloader, dirty_dataloader
+    dataloader_A,dataloader_B= clean_dataloader, dirty_dataloader
+    optimizer_main = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
+    # Optimizer for the discriminator
+    optimizer_disc = optim.AdamW(discriminator.parameters(), lr=lr, weight_decay=weight_decay) #TODO Use potentially different lr for disc
+
+    # --- Loss Functions ---
+    # Task Loss (CrossEntropy for transcription)
+    criterion_task = nn.CrossEntropyLoss(ignore_index=-100) # Use Whisper's default ignore index
+    # Domain Loss (Binary Cross Entropy with Logits for domain classification)
+    criterion_domain = nn.BCEWithLogitsLoss()
+
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
     early_stopping_discriminative_model_path = 'best_discriminative_model.pth'
     early_stopping_discriminator_path = 'best_discriminator.pth'
@@ -237,6 +241,8 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
         total_domain_samples_epoch = 0
         len_dataloader = min (len(dataloader_A), len(dataloader_B))
         # Use zip to iterate through both dataloaders simultaneously
+
+        # zip for parallel iteration
         data_iterator = iter(zip(dataloader_A, dataloader_B))
         pbar = tqdm(range(len_dataloader), desc=f"Epoch {epoch+1} Training")
 
@@ -248,18 +254,15 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
 
             # --- Prepare Data ---
             # Source domain data (Domain 0)
-            inputs_A = batch_A['input_features'].to(device) # Input features
-            labels_A = batch_A['labels'].to(device)         # Task labels for source
+            inputs_A = batch_A['input_features'].to(device) 
+            labels_A = batch_A['labels'].to(device)         
             domain_labels_A = torch.zeros(inputs_A.size(0), 1, device=device, dtype=torch.float) # Domain 0
 
             # Target domain data (Domain 1)
-            inputs_B = batch_B['input_features'].to(device) # Input features
+            inputs_B = batch_B['input_features'].to(device) 
             # labels_B might exist but are not used for unsupervised domain adaptation task loss
             domain_labels_B = torch.ones(inputs_B.size(0), 1, device=device, dtype=torch.float) # Domain 1
 
-            # Combine inputs for potentially faster processing if memory allows
-            # Note: This requires careful handling if batch sizes differ or if task loss
-            # is only computed on domain A. We'll process separately for clarity.
 
             # ======== Phase 1: Update Discriminator ========
             # Goal: Maximize discriminator's ability to classify domains correctly.
@@ -271,8 +274,8 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
             with torch.no_grad(): # Get features without tracking gradients back to Whisper
                  encoder_outputs_A = whisper_model.model.encoder(inputs_A)
                  features_A = encoder_outputs_A.last_hidden_state
-            # Apply mean pooling over sequence dimension
-            pooled_features_A = features_A.mean(dim=1).detach() # Detach here!
+            # mean pooling over sequence dimension
+            pooled_features_A = features_A.mean(dim=1).detach() 
             domain_logits_A = discriminator(pooled_features_A)
             loss_disc_A = criterion_domain(domain_logits_A, domain_labels_A)
 
@@ -280,7 +283,7 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
             with torch.no_grad():
                  encoder_outputs_B = whisper_model.model.encoder(inputs_B)
                  features_B = encoder_outputs_B.last_hidden_state
-            pooled_features_B = features_B.mean(dim=1).detach() # Detach here!
+            pooled_features_B = features_B.mean(dim=1).detach() 
             domain_logits_B = discriminator(pooled_features_B)
             loss_disc_B = criterion_domain(domain_logits_B, domain_labels_B)
 
@@ -320,14 +323,14 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
             # Calculate task loss (ignore padding)
             # Ensure correct slicing for loss calculation
             vocab_size = lm_logits_A.size(-1)
-            shifted_logits_A = lm_logits_A[:, :-1, :].contiguous()
-            shifted_labels_A = labels_A[:, 1:].contiguous()
+            shifted_logits_A = lm_logits_A[:, :-1, :].contiguous()# cut aways last element of sequence
+            shifted_labels_A = labels_A[:, 1:].contiguous()#cut away the first element of the labels sequence
             task_loss = criterion_task(shifted_logits_A.view(-1, vocab_size), shifted_labels_A.view(-1))
 
 
             # --- Adversarial Domain Loss (Both Domains) ---
             # Process Domain A through GRL and Discriminator
-            pooled_features_A = features_A.mean(dim=1) # Pool features from Domain A
+            pooled_features_A = features_A.mean(dim=1) # Pool features from Domain A mean of sequence
             reversed_pooled_features_A = grl(pooled_features_A)
             domain_logits_adv_A = discriminator(reversed_pooled_features_A)
             # We want the encoder to produce features that the discriminator thinks are from the *opposite* domain
@@ -353,7 +356,6 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
             domain_loss_adv = (domain_loss_adv_A + domain_loss_adv_B) / 2
 
             # --- Combine Losses for Main Optimizer ---
-            # The GRL will reverse the gradient of domain_loss_adv before it reaches the encoder
             total_loss_main = task_loss + lambda_domain_loss * domain_loss_adv
 
             # Backward pass and step for the main model (Whisper)
@@ -371,7 +373,7 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
                 "Disc Loss": f"{loss_disc.item():.4f}"
             })
 
-            # Clean up (optional, can help in memory-constrained environments)
+            # Clean up because of memory constraints
             del inputs_A, labels_A, domain_labels_A, inputs_B, domain_labels_B
             del features_A, features_B, pooled_features_A, pooled_features_B
             del domain_logits_A, domain_logits_B, domain_logits_adv_A, domain_logits_adv_B
@@ -393,40 +395,20 @@ def train_adversarial(trainer, discriminator, grl,collator,eval_dataset,
         print(f"  Avg Discriminator Loss: {avg_discriminator_loss:.4f}")
         print(f"  Domain Discriminator Accuracy: {domain_accuracy:.4f}")
 
-        # Optional: Adapt lambda for GRL (e.g., schedule)
+        # TODO: Adapt lambda for GRL (e.g., schedule)
         # p = float(step + epoch * len_dataloader) / (num_epochs * len_dataloader)
-        # new_lambda = 2. / (1. + np.exp(-10. * p)) - 1 # Example schedule
+        # new_lambda = 2. / (1. + np.exp(-10. * p)) - 1 
         # grl.set_lambda(new_lambda)
         # print(f"  Set GRL lambda to: {grl.lambda_:.4f}")
 
 
     # --- Save Model ---
     print("Training finished. Saving model...")
-    # You might want to save the discriminator too, or just the adapted Whisper model
-    #torch.save(whisper_model.state_dict(), f"whisper_adapted_dann_{epoch}epochs.pth")
-    #torch.save(discriminator.state_dict(), f"discriminator_dann_{epoch}epochs.pth")
-    # torch.save(discriminator.state_dict(), "discriminator_dann.pth")
+    torch.save(whisper_model.state_dict(), f"whisper_adapted_dann_{num_epochs}epochs.pth")
+    torch.save(discriminator.state_dict(), f"discriminator_dann_{num_epochs}epochs.pth")
 
     print("Model saved.")
 
 
-# --- Example Usage (requires actual dataloaders) ---
 if __name__ == "__main__":
-    # 1. Setup Models
-    whisper_model, discriminator, grl, device = setup_models()
-
-    # 2. Prepare Dataloaders (Replace with your actual dataloaders)
-    # Ensure your dataloaders yield dictionaries with keys like 'input_features' and 'labels'
-    # Example placeholder:
-
-    # 3. Run Training
-    # processor = WhisperProcessor.from_pretrained("distil-whisper/distil-large-v3")
-    # adapted_model = WhisperForConditionalGeneration.from_pretrained("./whisper_adapted_dann_1epochs.pth") # This won't work directly, need to load state dict
-    adapted_model = WhisperForConditionalGeneration.from_pretrained("distil-whisper/distil-large-v3")
-    # with torch.no_grad():
-    #     # Assume dummy_input_features is prepared correctly (e.g., from dataloader_B)
-    #     dummy_input_features = next(iter(dataloader_B))['input_features'].to(device)
-    #     # Generate using the main model's generate function
-    #     generated_ids = adapted_model.generate(inputs=dummy_input_features)
-        # generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)
-        # print("Generated Text (Example):", generated_text)
+    print("discriminator")
