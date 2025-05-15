@@ -175,6 +175,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
 
     print(f"Training for {num_epochs} epochs with {len_dataloader} steps per epoch.")
     print(f"InfoNCE Loss weight: {infonce_weight}, Temperature: {temperature}")
+    early_stopping_discriminative_counter = 0
     scaler = GradScaler()
     for epoch in range(num_epochs):
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")

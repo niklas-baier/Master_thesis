@@ -308,6 +308,7 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
     global _cached_tokenizer, _cached_model, _cached_processor
     if (run_details.checkpoint_path != ""):
         path_of_model = run_details.checkpoint_path
+        print("checkpoint used")
     else:
         path_of_model = run_details.model_id
     tokenizer = get_tokenizer(run_details.model_id)
