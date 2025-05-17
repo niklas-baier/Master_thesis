@@ -4,9 +4,22 @@ from train import RunDetails
 from typing import Union
 import pandas as pd 
 import unittest
+import warnings
+import gc
+import torch
+def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
+    import traceback
+    traceback.print_stack()
+    print(f"{filename}:{lineno}: {category.__name__}: {message}")
 
 
 
+def get_tensor_gpu_memory():
+    objects = gc.get_objects()
+    gpu_tensors = [obj for obj in objects if torch.is_tensor(obj) and obj.is_cuda]
+    total_memory_usage = sum(tensor.numel() * tensor.element_size() for tensor in gpu_tensors)
+    total_memory_usage_mb = total_memory_usage / (1024 ** 2)
+    return total_memory_usage_mb
 def run_details_valid(run_details:RunDetails) -> bool:
     valid_run_details = get_dict_of_acceptable_run_details()
     if run_details.train_state in valid_run_details["train_state"]:
