@@ -131,11 +131,11 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "fp16": True,
         "logging_steps": loggings_steps,
         "remove_unused_columns": True,
-        "eval_accumulation_steps": 4,
+        "eval_accumulation_steps": 2,
         "metric_for_best_model": "wer",
         "greater_is_better": False,
         "dataloader_num_workers": 8,
-        "dataloader_pin_memory": True
+        "dataloader_pin_memory": True,
     }
 
     # Adjustments for PEFT version
@@ -314,6 +314,7 @@ def create_tokenizer_model_processor(run_details:RunDetails, torch_dtype:torch.d
     tokenizer = get_tokenizer(run_details.model_id)
     tokenizer.set_prefix_tokens( language="english" )
     model = WhisperForConditionalGeneration.from_pretrained(run_details.model_id)
+    model.generation_config.use_cache = False
     if (run_details.checkpoint_path != ""):
         if run_details.version == 'vanilla':
             state_dict = torch.load(run_details.checkpoint_path)

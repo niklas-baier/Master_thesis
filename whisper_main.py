@@ -95,9 +95,9 @@ def main(argv):
         if run_details.run_notes == 'contrastive':
 
     #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-            BATCH_SIZE = 64 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            BATCH_SIZE = 4 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
-                BATCH_SIZE = 16
+                BATCH_SIZE = 64
             NUM_EPOCHS = 20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01

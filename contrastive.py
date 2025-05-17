@@ -1,5 +1,7 @@
 # --- End Debugging ---
 import torch
+import warnings
+from test_Whisper import warn_with_traceback, get_tensor_gpu_memory
 from transcribe import transcribe_evaluation
 import wandb
 import meeteval
@@ -151,6 +153,8 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
 
     # --- Optimizer ---
     #pre_sim = asses_similarity(whisper_model=whisper_model, processor=processor, collator=collator, train_dataset=train_dataset,device=device,BATCH_SIZE=BATCH_SIZE,num_epochs=1)
+    whisper_model.gradient_checkpointing_enable()
+    whisper_model.to("cuda")
     optimizer = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
@@ -158,16 +162,17 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
     counter = 0
     #torch.autograd.set_detect_anomaly(True)clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
     # establish baseline
-    base_results, base_wer = evaluate_dataset(whisper_model=whisper_model, dataset= train_dataset[0],BATCH_SIZE=BATCH_SIZE, collator=collator, device=device)
+    #_, base_wer = evaluate_dataset(whisper_model=whisper_model, dataset= train_dataset[0],BATCH_SIZE=BATCH_SIZE, collator=collator, device=device)
+    base_wer = 32
     print(f"base_wer is {base_wer}")
     early_stopping_contrastive_model_path= 'contrastive_early.pth'
 
-    dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_C = DataLoader(train_dataset[2], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_D = DataLoader(train_dataset[3], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_E = DataLoader(train_dataset[4], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-    dataloader_F = DataLoader(train_dataset[5], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
+    dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
+    dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
+    dataloader_C = DataLoader(train_dataset[2], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
+    dataloader_D = DataLoader(train_dataset[3], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
+    dataloader_E = DataLoader(train_dataset[4], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
+    dataloader_F = DataLoader(train_dataset[5], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=1 )
     len_dataloader = min(len(dataloader_A), len(dataloader_B))
     if len_dataloader == 0:
         print("Error: Dataloaders are empty.")
@@ -179,8 +184,6 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
     scaler = GradScaler()
     for epoch in range(num_epochs):
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
-        whisper_model.train()
-        whisper_model.gradient_checkpointing_enable()
         whisper_model.to("cuda")
         dataloader_A = DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         dataloader_B = DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
@@ -214,6 +217,8 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
 
         pbar = tqdm(range(len_dataloader), desc="Training Steps")
         for step in pbar:
+            torch.cuda.empty_cache()
+            optimizer.zero_grad()
             try:
                 batch_A, batch_B,batch_C,batch_D, batch_E, batch_F = next(data_iterator)
                 batch_lookup_dict = { 1: batch_B, 2: batch_C, 3:batch_D, 4:batch_E, 5:batch_F}
@@ -224,10 +229,10 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 break
 
             # --- Prepare Data ---
-            optimizer.zero_grad()
-            with torch.amp.autocast('cuda'):
+            with torch.autocast('cuda'):
                 inputs_A = batch_A['input_features'].to(device)
                 labels_A = batch_A['labels'].to(device)
+
                 # Ensure padding in labels is -100
                 labels_A = labels_A.masked_fill(labels_A == processor.tokenizer.pad_token_id, -100)
 
@@ -236,15 +241,19 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 # Labels for B might not be needed for contrastive, but run forward pass anyway
                 # If you want standard loss on B too, provide labels_B here
                 labels_B = batch_B['labels'].to(device)
-                labels_B = labels_B.masked_fill(labels_B == processor.tokenizer.pad_token_id, -100)
-
+                #labels_B = labels_B.masked_fill(labels_B == processor.tokenizer.pad_token_id, -100)
+                
                 # --- Forward Pass & Standard Loss ---
                 # Process source domain A - calculate standard transcription loss
 
                 # --- Pooling ---
                 outputs_A = whisper_model(input_features=inputs_A, labels=labels_A)
-                standard_loss_A = outputs_A.loss # This is the seq2seq CE loss
-
+                features_encoder_A_t = outputs_A.encoder_last_hidden_state
+                standard_loss_A_t = outputs_A.loss # This is the seq2seq CE loss
+                features_encoder_A = features_encoder_A_t
+                standard_loss_A = standard_loss_A_t
+                del features_encoder_A_t
+                del standard_loss_A_t
                 # Process target domain B - primarily to get encoder features
                 # No labels provided = no standard loss calculated for B here
                 # Provide labels=labels_B if you want to calculate standard loss on B too
@@ -255,7 +264,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 # Access the last hidden state of the encoder
                 features_encoder_A = outputs_A.encoder_last_hidden_state # (batch, seq_len, hidden_dim)
                 features_encoder_B = outputs_B.encoder_last_hidden_state # (batch, seq_len, hidden_dim)
-
+                del inputs_B, labels_B
                 if features_encoder_A is None or features_encoder_B is None:
                     print("Error: Could not retrieve encoder hidden states. Check model configuration.")
                     continue
@@ -268,26 +277,26 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 # Pool encoder features (e.g., mean pooling)
 
                 # --- InfoNCE Loss ---
-                contrastive_loss = calculate_infonce_loss(
-                        pooled_features_A, pooled_features_B,
-                        temperature=temperature, device=device
-                        )
+                contrastive_loss = calculate_infonce_loss(pooled_features_A, pooled_features_B,temperature=temperature, device=device)
 
                 # --- Combine Losses ---
                 # Adjust weighting as needed
                 # Here, we only use standard loss from domain A
                 infonce_weight = 1
-                total_loss = standard_loss_A + infonce_weight * contrastive_loss
+                #total_loss = standard_loss_A + infonce_weight * contrastive_loss
                 # Alternative: If using standard loss on both:
-                # standard_loss_B = whisper_model(input_features=inputs_B, labels=labels_B).loss
-                # total_loss = (standard_loss_A + standard_loss_B)/2 + infonce_weight * contrastive_loss
+                standard_loss_B = outputs_B.loss
+                total_loss = (standard_loss_A + standard_loss_B)/2 #+ infonce_weight * contrastive_loss
 
                 # --- Backpropagation & Optimization ---
             scaler.scale(total_loss).backward()
             #total_loss.backward()
+                
+
             max_grad = 0.0
             has_nan_inf_grad = False
-            '''for param in whisper_model.parameters():
+            '''
+            for param in whisper_model.parameters():
                 if param.grad is not None:
                     if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
                         has_nan_inf_grad = True
@@ -305,12 +314,16 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
             scaler.update()
             #optimizer.step()
 
+            #n_float16_params = [name for name, param in model.named_parameters() if param.dtype != torch.float16]
+            #print(str(len(n_float16_params))+ 'this is the num of float32params')
             # --- Logging ---
             total_standard_loss += standard_loss_A.item()
             total_contrastive_loss += contrastive_loss.item()
             wandb.log({"epoch/avg_standard_loss": standard_loss_A.item(),"epoch/avg_contrastive_loss": contrastive_loss.item(),"epoch/avg_combined_loss": standard_loss_A.item()+ 0.1*contrastive_loss.item(),"epoch": epoch})
 
-            #del outputs_B, outputs_A, inputs_A, inputs_B, labels_A,labels_B, features_encoder_A, features_encoder_B
+            #del  outputs_B, outputs_A, inputs_A, inputs_B, labels_A,labels_B, features_encoder_A, features_encoder_B,Batch_A, Batch_B, Batch_C, Batch_D,Batch_E, Batch_F
+            #dataloader_A, dataloader_B, dataloader_C, dataloader_D, dataloader_E,
+
 
 
 
