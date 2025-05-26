@@ -13,7 +13,7 @@ import random
 import math
 import os
 import glob
-
+import wandb
 # Enable optimizations
 torch.backends.cudnn.benchmark = True  # Optimize for fixed input sizes
 torch.backends.cuda.matmul.allow_tf32 = True  # Allow TF32 for faster training
@@ -688,7 +688,7 @@ def train_rectified_flow(model, dataloader, num_epochs, lr=1e-4, scheduler_type=
     optimizer = optim.AdamW(
         model.parameters(), 
         lr=lr, 
-        weight_decay=1e-4,  # Higher weight decay
+        weight_decay=1e-3,  # Higher weight decay
         betas=(0.9, 0.999),
         eps=1e-8
     )
@@ -698,7 +698,7 @@ def train_rectified_flow(model, dataloader, num_epochs, lr=1e-4, scheduler_type=
         # OneCycle: Often best for diffusion models
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer,
-            max_lr= 5*lr,  # Peak at 5x base LR
+            max_lr= 3*lr,  # Peak at 5x base LR
             epochs=num_epochs,
             steps_per_epoch=len(dataloader),
             pct_start=0.3,  # Reach peak at 30%
@@ -785,7 +785,7 @@ def train_rectified_flow(model, dataloader, num_epochs, lr=1e-4, scheduler_type=
         
         avg_loss = epoch_loss / len(dataloader)
         losses.append(avg_loss)
-        
+        wandb.log({"losses":avg_loss})
         # Step scheduler per epoch
         if not step_per_batch:
             if scheduler_type == 'reduce_on_plateau':
@@ -856,7 +856,8 @@ def generate_samples_ema(ema_model, dataloader, epoch):
     
     plt.tight_layout()
     plt.savefig(f'samples_epoch_{epoch}.png', dpi=150, bbox_inches='tight')
-    plt.show()
+    wandb.log({f"samples_epoch_{epoch}.png": wandb.Image(fig)})
+
 
 def generate_samples(model, dataloader, epoch):
     """Backward compatibility function"""
@@ -866,7 +867,7 @@ def generate_samples(model, dataloader, epoch):
 def main():
     # Set your dataset path here
     BASE_DIR = "/home/nbaier/.cache/kagglehub/datasets/balraj98/edges2shoes-dataset/versions/1/"
-    BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/latent_diffusion/edges2shoes-dataset/versions/1"
+    #BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/latent_diffusion/edges2shoes-dataset/versions/1"
     # Check if base directory exists
     if not os.path.exists(BASE_DIR):
         print(f"Error: Base directory '{BASE_DIR}' not found!")
@@ -890,12 +891,17 @@ def main():
     else:
         print("Validation directory not found, training without validation")
     
-    # Create dataloaders
+    # Create dataloadersi
+    batch_size = 8
+    num_epochs = 50
+    lr = 1e-5
+    scheduler_type = "one_cycle"
+    wandb.init(project='diffusion', config= {"lr":lr,"batch_size":batch_size,"ema": 0.99, "weight_decay": 1e-2,"size":"small", "num_epochs" : num_epochs, "scheduler_type": scheduler_type })
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=64,  # Further reduced batch size for stability
+        batch_size=batch_size,  # Further reduced batch size for stability
         shuffle=True, 
-        num_workers=4,
+        num_workers=2,
         pin_memory=True,
         persistent_workers=True,
         drop_last=True
@@ -905,9 +911,9 @@ def main():
     if val_dataset:
         val_dataloader = DataLoader(
             val_dataset,
-            batch_size=8,
+            batch_size=batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             persistent_workers=True,
             drop_last=False
@@ -932,10 +938,10 @@ def main():
         train_dataloader,
         #val_dataloader,
         num_epochs=50,  # Increased epochs with lower LR
-        lr=2e-5,  # Lower learning rate
-        scheduler_type='onecycle'  # Most stable scheduler
+        lr=lr,  # Lower learning rate
+        scheduler_type=scheduler_type  # Most stable scheduler
     )
-    
+    wandb.finish()
     # Plot training loss
     plt.figure(figsize=(12, 5))
     
