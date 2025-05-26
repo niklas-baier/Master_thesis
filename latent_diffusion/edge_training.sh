@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA_LAUNCH_BLOCKING=1 CUDA_VISIBLE_DEVICES=2 python3 edges_training.py
+python3 edges_training.py
 
 
 
