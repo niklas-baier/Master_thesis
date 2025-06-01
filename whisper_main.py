@@ -118,6 +118,7 @@ def main(argv):
             run_details = generate_rundetails(args_copy)
             trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details, args=args)
             trainer.model = contrastive_model
+            del train_dataset
             transcribe_visualize_log_results(test_dataset=test_dataset, trainer=trainer, run_details=run_details)
 
 
@@ -186,6 +187,7 @@ def main(argv):
                 min_wer = 5
                 counter_since_last_min = 0
                 path_of_best_model = f'min_training.pth'
+                num_epochs = 20
                 for i in range(num_epochs):
                     print(i)
                     trainer.args.max_steps = trainer.train_dataset.shape[0]//trainer.args.per_device_train_batch_size
@@ -198,6 +200,9 @@ def main(argv):
                     test=validation_results.with_columns(pl.col(["predictions","labels"]).map_elements(evaluation.chime_normalisation))
                     df = test.with_columns(pl.struct(["predictions", "labels"]).map_elements(lambda x: jiwer.wer(x["labels"], x["predictions"])).alias("wer"))
                     mean_wer = df['wer'].mean()
+                    wandb.log({"validation_wer" : mean_wer})
+                    print(mean_wer)
+                    print(type(mean_wer))
                     wers.append(mean_wer)
                     if(mean_wer < min_wer):
                         torch.save(trainer.model.state_dict(), path_of_best_model)
