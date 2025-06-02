@@ -20,34 +20,165 @@ from train import RunResults, transcribe_audio
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from statsmodels.nonparametric.smoothers_lowess import lowess
-def visualize_hidden_states(hidden_states,run_details):
-        plot_tsne_hidden_states(hidden_states, run_details)
-        plot_umap_hidden_states(hidden_states, run_details)
-        print("visualization")
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.manifold import TSNE
+from sklearn.neighbors import KernelDensity
+import seaborn as sns
+import wandb
+
+def visualize_hidden_states(hidden_states, run_details):
+    plot_tsne_hidden_states(hidden_states, run_details)
+    plot_umap_hidden_states(hidden_states, run_details)
+    print("visualization")
 
 def plot_tsne_hidden_states(hidden_states, run_details):
-      #perplexities = [5,10,50,100,500,1000]
-      perplexities = [10]
-      for perplexity in perplexities:
-          tsne = TSNE(n_components=2, random_state=42, perplexity= perplexity)
-          embeddings = tsne.fit_transform(hidden_states)
-          plot_hidden_states(embeddings,f"t-SNE{perplexity}", run_details=run_details)
+    perplexities = [10]
+    for perplexity in perplexities:
+        tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+        embeddings = tsne.fit_transform(hidden_states)
+
+        # Multiple visualization approaches
+        plot_hidden_states_scatter(embeddings, f"t-SNE{perplexity}", run_details)
+        plot_hidden_states_density(embeddings, f"t-SNE{perplexity}_density", run_details)
+        plot_hidden_states_hexbin(embeddings, f"t-SNE{perplexity}_hexbin", run_details)
+        plot_hidden_states_contour(embeddings, f"t-SNE{perplexity}_contour", run_details)
+
+def get_data_segments(embeddings, step_size=1127):
+    """Split embeddings into labeled segments"""
+    alpha, beta, gamma, delta, epsilon = list(range(step_size, 6*step_size, step_size))
+
+    segments = {
+        'Persons': embeddings[:alpha],
+        'Microphone 1': embeddings[alpha:beta],
+        'Microphone 2': embeddings[beta:gamma],
+        'Microphone 3': embeddings[gamma:delta],
+        'Microphone 4': embeddings[delta:epsilon],
+        'Microphone 5': embeddings[epsilon:]
+    }
+
+    colors = ['red', 'blue', 'green', 'gold', 'black', 'cyan']
+    return segments, colors
+
+def plot_hidden_states_scatter(embeddings, name, run_details):
+    """Original scatter plot with reduced opacity and smaller points"""
+    plt.figure(figsize=(12, 8))
+    segments, colors = get_data_segments(embeddings)
+
+    for (label, data), color in zip(segments.items(), colors):
+        plt.scatter(data[:, 0], data[:, 1],
+                   color=color, alpha=0.3, s=8, label=label, rasterized=True)
+
+    plt.title(f'{name} Visualization of Whisper Hidden States (Scatter)')
+    plt.xlabel(f'{name} dimension 1')
+    plt.ylabel(f'{name} dimension 2')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{name}_scatter_{run_details.model_id[:5]}_{run_details.dataset_name}.png',
+                dpi=150, bbox_inches='tight')
+    wandb.log({"scatter": wandb.Image(plt)})
+    plt.close()
+
+def plot_hidden_states_density(embeddings, name, run_details):
+    """Density heatmap overlay for each category"""
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+
+    segments, colors = get_data_segments(embeddings)
+
+    # Overall bounds for consistent scaling
+    x_min, x_max = embeddings[:, 0].min(), embeddings[:, 0].max()
+    y_min, y_max = embeddings[:, 1].min(), embeddings[:, 1].max()
+
+    for idx, ((label, data), color) in enumerate(zip(segments.items(), colors)):
+        ax = axes[idx]
+
+        # Create 2D histogram/density plot
+        h = ax.hist2d(data[:, 0], data[:, 1], bins=50, alpha=0.8,
+                     cmap=plt.cm.get_cmap('hot'), density=True)
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        ax.set_title(f'{label} Density')
+        ax.grid(True, alpha=0.3)
+        plt.colorbar(h[3], ax=ax, shrink=0.6)
+
+    plt.suptitle(f'{name} - Density Distribution by Category', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(f'{name}_density_{run_details.model_id[:5]}_{run_details.dataset_name}.png',
+                dpi=150, bbox_inches='tight')
+    wandb.log({"density": wandb.Image(plt)})
+    plt.close()
+
+def plot_hidden_states_hexbin(embeddings, name, run_details):
+    """Hexagonal binning for better density visualization"""
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+
+    segments, colors = get_data_segments(embeddings)
+
+    for idx, ((label, data), color) in enumerate(zip(segments.items(), colors)):
+        ax = axes[idx]
+
+        hb = ax.hexbin(data[:, 0], data[:, 1], gridsize=30, cmap='YlOrRd', alpha=0.8)
+        ax.set_title(f'{label} (n={len(data)})')
+        ax.grid(True, alpha=0.3)
+        plt.colorbar(hb, ax=ax, shrink=0.6)
+
+    plt.suptitle(f'{name} - Hexbin Density Distribution', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(f'{name}_hexbin_{run_details.model_id[:5]}_{run_details.dataset_name}.png',
+                dpi=150, bbox_inches='tight')
+    plt.close()
+
+def plot_hidden_states_contour(embeddings, name, run_details):
+    """Contour plot showing density overlaps"""
+    plt.figure(figsize=(14, 10))
+    segments, colors = get_data_segments(embeddings)
+
+    # Create a grid for density estimation
+    x_min, x_max = embeddings[:, 0].min(), embeddings[:, 0].max()
+    y_min, y_max = embeddings[:, 1].min(), embeddings[:, 1].max()
+
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
+                         np.linspace(y_min, y_max, 100))
+
+    for (label, data), color in zip(segments.items(), colors):
+        if len(data) > 10:  # Need minimum points for KDE
+            # Kernel Density Estimation
+            kde = KernelDensity(kernel='gaussian', bandwidth=0.5)
+            kde.fit(data)
+
+            # Evaluate density on grid
+            grid_points = np.c_[xx.ravel(), yy.ravel()]
+            log_density = kde.score_samples(grid_points)
+            density = np.exp(log_density).reshape(xx.shape)
+
+            # Plot contours
+            plt.contour(xx, yy, density, levels=5, colors=color, alpha=0.7, linewidths=1.5)
+            plt.contourf(xx, yy, density, levels=10, colors=[color], alpha=0.1)
+
+    # Add scatter plot with very low opacity for reference
+    for (label, data), color in zip(segments.items(), colors):
+        plt.scatter(data[:, 0], data[:, 1], color=color, alpha=0.05, s=1,
+                   label=label, rasterized=True)
+
+    plt.title(f'{name} - Density Contours and Overlaps')
+    plt.xlabel(f'{name} dimension 1')
+    plt.ylabel(f'{name} dimension 2')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{name}_contour_{run_details.model_id[:5]}_{run_details.dataset_name}.png',
+                dpi=150, bbox_inches='tight')
+    wandb.log({"contour": wandb.Image(plt)})
+
+    wandb.log({"hexbin": wandb.Image(plt)})
+    plt.close()
 
 def plot_hidden_states(embeddings, name_of_dimensionality_reduction_algorithm, run_details):
-    plt.figure(figsize=(10, 8))
-    step_size = 1127
-    alpha,beta,gamma,delta, epsilon = list(range(step_size,6*step_size,step_size))
-    plt.scatter(embeddings[:alpha, 0], embeddings[:alpha, 1], color='r', alpha=0.7, s=40, label='Persons')
-    plt.scatter(embeddings[alpha:beta, 0], embeddings[alpha:beta, 1], color='b', alpha=0.7, s=40, label='Microphone 1')
-    plt.scatter(embeddings[beta:gamma, 0], embeddings[beta:gamma, 1], color='g', alpha=0.7, s=40, label='Microphone 2')
-    plt.scatter(embeddings[gamma:delta, 0], embeddings[gamma:delta, 1], color='y', alpha=0.7, s=40, label='Microphone 3')
-    plt.scatter(embeddings[delta:epsilon, 0], embeddings[delta:epsilon, 1], color='k', alpha=0.7, s=40, label='Microphone 4')
-    plt.scatter(embeddings[epsilon:, 0], embeddings[epsilon:, 1], color='c', alpha=0.7, s=40, label='Microphone 5')
-    plt.title(f'{name_of_dimensionality_reduction_algorithm} Visualization of Whisper Hidden States')
-    plt.xlabel(f'{name_of_dimensionality_reduction_algorithm} dimension 1')
-    plt.ylabel(f'{name_of_dimensionality_reduction_algorithm} dimension 2')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig(f'{name_of_dimensionality_reduction_algorithm}_{run_details.model_id[:5]}_{run_details.dataset_name}.png')
+    """Legacy function - kept for compatibility"""
+    plot_hidden_states_scatter(embeddings, name_of_dimensionality_reduction_algorithm, run_details)
 def plot_umap_hidden_states(hidden_states, run_details):
     n_neighbours = [5]
     min_dist = [0.1]
