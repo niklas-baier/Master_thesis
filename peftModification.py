@@ -56,11 +56,11 @@ def create_peft(run_details):
 
 
 def alterative_peft(run_details, model):
-    from peft import prepare_model_for_kbit_training
+
+    '''from peft import prepare_model_for_kbit_training
     from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
     from peft import LoraConfig, PeftModel, LoraModel, LoraConfig, get_peft_model
     # q_proj, v_proj, k_proj, out_proj, fc1, fc2
-    config = LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "v_proj"], lora_dropout=0.05, bias="none")#layers_to_transform=[0,1]
 
     #model = get_peft_model(model, config)
     lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "v_proj", "k_proj"] )#target_modules=["q_proj", "k_proj"]
@@ -69,14 +69,27 @@ def alterative_peft(run_details, model):
     num_of_trainable_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-    #run_details.num_of_trainable_parameters = num_of_trainable_parameters
+    #run_details.num_of_trainable_parameters = num_of_trainable_parameters'''
+    from peft import LoraConfig, get_peft_model, TaskType
+
+    lora_config = LoraConfig(
+        r=16,
+        lora_alpha=32,
+        target_modules=["q_proj", "v_proj", "k_proj"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type=TaskType.SEQ_2_SEQ_LM
+    )
+
+    model = get_peft_model(model, lora_config)
+
+    # Check trainable params
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {trainable_params}")
 
 
-    return model 
-  
+    return model
+
 
 
 # This callback helps to save only the adapter weights and remove the base model weights.
-
-
-
