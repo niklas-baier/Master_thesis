@@ -109,6 +109,9 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
     #ID 169
     train_batch_size = 16
     per_device_eval_batch_size = 16
+    if run_details.environment == 'laptop':
+        train_batch_size = 4
+        per_device_eval_batch_size = 4
     if (run_details.environment == "bwcluster"):
         train_batch_size = 64
         per_device_eval_batch_size = 64
@@ -130,7 +133,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "eval_steps": save_steps,
         "fp16": True,
         "logging_steps": loggings_steps,
-        "remove_unused_columns": True,
         "eval_accumulation_steps": 2,
         "metric_for_best_model": "wer",
         "greater_is_better": False,
@@ -149,7 +151,7 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
             "generation_max_length": 200,
             "torch_empty_cache_steps": 2,
             "label_names": ["labels"],
-
+            "remove_unused_columns": False,
         }
         # Merge base and PEFT-specific arguments
         training_args = Seq2SeqTrainingArguments(**base_args, **peft_args)
@@ -450,3 +452,22 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
             train_dataset = datasets.load_from_disk( noisy_train_dataset_path )
 
         return train_dataset, eval_dataset, test_dataset
+
+from transformers import Seq2SeqTrainer
+
+class WhisperSeq2SeqTrainer(Seq2SeqTrainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # Strip any unexpected keys like input_ids
+        inputs.pop("input_ids", None)
+
+        input_features = inputs["input_features"]
+        labels = inputs["labels"]
+        decoder_input_ids = inputs.get("decoder_input_ids", None)
+
+        outputs = model(
+            input_features=input_features,
+            decoder_input_ids=decoder_input_ids,
+            labels=labels
+        )
+        loss = outputs.loss
+        return (loss, outputs) if return_outputs else loss
