@@ -20,7 +20,7 @@ import pandas as pd
 from logrun import log_run
 from test_Whisper import run_details_valid
 from visualizations import visualize_results, plot_loss, plot_WER, plot_tsne, plot_validation_wer
-from train import RunDetails, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, DataCollatorSpeechClassification, get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
+from train import RunDetails,WhisperSeq2SeqTrainer, add_prediction_column, generate_training_args, DataCollatorSpeechSeq2SeqWithPadding, DataCollatorSpeechClassification, get_model_size, transcribe_raw, create_tokenizer_model_processor, generate_datasets, get_cached_components
 from config import get_parser
 import os
 import torch
@@ -51,7 +51,7 @@ def main(argv):
     formated_date = preprocessing.get_formated_date()
     def generate_rundetails(args):
         run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
-        assert run_details_valid(run_details)
+        assert run_details_valid(run_details )
         return run_details
     run_details= generate_rundetails(args)
 
@@ -79,7 +79,6 @@ def main(argv):
         training_args = generate_training_args(run_details)
         trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
         collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-        trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
         processor.save_pretrained(training_args.output_dir)
         return trainer, train_dataset, eval_dataset, test_dataset
     trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details,args=args)
@@ -181,15 +180,88 @@ def main(argv):
                 model = swa_model
             else:
                 trainer.evaluation_strategy="no"
+                def make_inputs_require_grad(module, input, output):
+                    output.requires_grad_(True)
+                model = trainer.model
+                model.model.model.encoder.conv1.register_forward_hook(make_inputs_require_grad)
+                trainer.model = model
                 start_time = time.perf_counter()
                 wers = []
                 min_wer = 5
                 counter_since_last_min = 0
                 path_of_best_model = f'min_training.pth'
+                clean_dataloader= DataLoader(train_dataset, batch_size=8, collate_fn=collator, num_workers=2 )
+                original_peft_model_forward = model.forward # Store original reference
+
+                def whisper_peft_forward_wrapper(
+                    self, # 'self' refers to the PeftModelForSeq2SeqLM instance
+                    *args,
+                    **kwargs
+                ):
+                    #print("DEBUG: whisper_peft_forward_wrapper called!")
+                    #print(f"DEBUG: wrapper received args: {len(args)}")
+                    #print(f"DEBUG: wrapper received kwargs keys: {list(kwargs.keys())}")
+
+                    # Remove input_ids from kwargs if present
+                    if 'input_ids' in kwargs:
+                        #print("DEBUG: Removing input_ids from kwargs")
+                        del kwargs['input_ids']
+
+                    # Store original base model forward
+                    base_model = self.base_model
+                    original_base_forward = base_model.forward
+
+                    def patched_whisper_forward(**base_kwargs):
+                        #print("DEBUG: patched_whisper_forward called!")
+                        #print(f"DEBUG: Received kwargs: {list(base_kwargs.keys())}")
+
+                        # Filter kwargs to only include parameters that Whisper actually accepts
+                        whisper_params = {
+                            'input_features', 'attention_mask', 'decoder_input_ids',
+                            'decoder_attention_mask', 'head_mask', 'decoder_head_mask',
+                            'cross_attn_head_mask', 'encoder_outputs', 'past_key_values',
+                            'decoder_inputs_embeds', 'decoder_position_ids', 'labels',
+                            'use_cache', 'output_attentions', 'output_hidden_states',
+                            'return_dict', 'cache_position'
+                        }
+
+                        filtered_kwargs = {}
+                        for key, value in base_kwargs.items():
+                            if key in whisper_params:
+                                filtered_kwargs[key] = value
+                            else:
+                                pass
+
+                            #print(f"DEBUG: Filtering out unsupported parameter: {key}")
+
+
+                        #print(f"DEBUG: Calling base Whisper with filtered params: {list(filtered_kwargs.keys())}")
+                        return original_base_forward(**filtered_kwargs)
+
+                    # Temporarily patch the base model
+                    base_model.forward = patched_whisper_forward
+
+                    try:
+                        #print(f"DEBUG: Calling original PEFT forward with kwargs: {list(kwargs.keys())}")
+                        result = original_peft_model_forward(self, *args, **kwargs)
+                        #print(f"DEBUG: Got result type: {type(result)}")
+                        return result
+                    finally:
+                        # Always restore the original forward method
+                        base_model.forward = original_base_forward
+
+                # Proper method binding
+                import types
+                model.forward = types.MethodType(whisper_peft_forward_wrapper, model)
+
+                print(f"DEBUG: Model forward method is now: {model.forward}")
+                print(f"DEBUG: Model type: {type(model)}")
+                breakpoint()
+                print("Using WhisperTraineri in training?", isinstance(trainer, WhisperSeq2SeqTrainer))
                 for i in range(num_epochs):
                     print(i)
                     trainer.args.max_steps = trainer.train_dataset.shape[0]//trainer.args.per_device_train_batch_size
-
+                    print("Sample from train_dataset:", train_dataset[0].keys())
                     print(trainer.args.max_steps)
 
                     trainer.train()
@@ -423,38 +495,58 @@ class SavePeftModelCallback( TrainerCallback ):
         if os.path.exists( pytorch_model_path ):
             os.remove( pytorch_model_path )
         return control
-
-def get_trainer(run_details:RunDetails, training_args:dict, data_collator,train_dataset:Dataset, eval_dataset:Dataset,model, processor)->Seq2SeqTrainer:
-    #ID 170
-    if run_details.version == "peft":
-        trainer = Seq2SeqTrainer(
-            args=training_args,
-            model=model,
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
-            data_collator=data_collator,
-            compute_metrics=compute_metrics,
-            tokenizer=processor.feature_extractor,
-
-
-            )
-        # silence the warnings. Please re-enable for inference!
-    else:
-        trainer = Seq2SeqTrainer(
-            args=training_args,
-            model=model,
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
-            data_collator=data_collator,
-            compute_metrics = compute_metrics,
-            tokenizer=processor.feature_extractor,
-            )
+def get_trainer(run_details: RunDetails, training_args: dict, data_collator, train_dataset: Dataset, eval_dataset: Dataset, model, processor) -> Seq2SeqTrainer:
+    from train import WhisperSeq2SeqTrainer
+    TrainerClass = WhisperSeq2SeqTrainer if run_details.version == "peft" else Seq2SeqTrainer
+    print(type(TrainerClass)) # yields <class 'type'> is this normal ?
+    trainer = TrainerClass(
+        args=training_args,
+        model=model,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+        tokenizer=processor.feature_extractor,  # Still okay to keep for logging etc.
+    )
+    print("Using WhisperTrainer?", isinstance(trainer, WhisperSeq2SeqTrainer))
     return trainer
-# significantly faster than pandas dataframe
 
 
 
+def generate_snippets(eval_df):
+    import pandas as pd
+    import torchaudio
+    import os
 
+    # Assuming eval_df is your DataFrame
+    # Group the DataFrame by 'file_path'
+    grouped_by_path = eval_df.groupby('file_path')
+
+    # Directory where you want to save the snippets
+    output_dir = '/media/niklas/SSD2/ind_beamforming'
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Iterate over each group
+    for file_path, group in grouped_by_path:
+        # Load the audio file
+        audio_data, sample_rate = torchaudio.load(file_path)
+
+        # Iterate over each row in the group
+        for index, row in group.iterrows():
+            start_frame = row['startframe']
+            num_frames = row['num_frames']
+
+            # Extract the snippet
+            snippet = audio_data[:, start_frame:start_frame + num_frames]
+
+            # Define the output file name
+            file_name = os.path.splitext(os.path.basename(file_path))[0]
+            output_file = os.path.join(output_dir, f"{file_name}_{index}.wav")
+
+            # Save the snippet
+            torchaudio.save(output_file, snippet, sample_rate)
+
+    print("Audio snippets have been saved successfully.")
 
 
 
