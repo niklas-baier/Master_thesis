@@ -502,7 +502,8 @@ class SavePeftModelCallback( TrainerCallback ):
         return control
 def get_trainer(run_details: RunDetails, training_args: dict, data_collator, train_dataset: Dataset, eval_dataset: Dataset, model, processor) -> Seq2SeqTrainer:
     from train import WhisperSeq2SeqTrainer
-    TrainerClass = WhisperSeq2SeqTrainer if run_details.version == "peft" else Seq2SeqTrainer
+    #TrainerClass = WhisperSeq2SeqTrainer if run_details.version == "peft" else Seq2SeqTrainer
+    TrainerClass = Seq2SeqTrainer
     print(type(TrainerClass)) # yields <class 'type'> is this normal ?
     trainer = TrainerClass(
         args=training_args,
