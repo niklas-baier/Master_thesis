@@ -192,7 +192,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
         dataloader_E = DataLoader(train_dataset[4], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         dataloader_F = DataLoader(train_dataset[5], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
         len_dataloader = min(len(dataloader_A), len(dataloader_B))
-    
+
         total_standard_loss = 0.0
         total_contrastive_loss = 0.0
         _, mean_validation_wer = transcribe_evaluation(trainer=trainer, test_dataset=eval_dataset, run_details = run_details)
@@ -242,7 +242,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 # If you want standard loss on B too, provide labels_B here
                 labels_B = batch_B['labels'].to(device)
                 #labels_B = labels_B.masked_fill(labels_B == processor.tokenizer.pad_token_id, -100)
-                
+
                 # --- Forward Pass & Standard Loss ---
                 # Process source domain A - calculate standard transcription loss
 
@@ -291,7 +291,7 @@ def train_infonce(whisper_model, processor,collator, train_dataset,eval_dataset,
                 # --- Backpropagation & Optimization ---
             scaler.scale(total_loss).backward()
             #total_loss.backward()
-                
+
 
             max_grad = 0.0
             has_nan_inf_grad = False
@@ -504,3 +504,342 @@ if __name__ == "__main__":
     print("\nTraining finished.")
     # Add code here to save your adapted whisper_model weights if needed
     # torch.save(whisper_model.state_dict(), "infonce_adapted_whisper_model.pth")
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torch.cuda.amp import GradScaler, autocast
+import torch.nn.functional as F
+from tqdm import tqdm
+import wandb
+import random
+import numpy as np
+
+def calculate_nt_xent_loss(clean_features, noisy_features, temperature=0.07, device='cuda'):
+    """
+    NT-Xent (Normalized Temperature-scaled Cross Entropy) loss for contrastive learning.
+    Treats clean[i] and noisy[i] as positive pairs, all others as negatives.
+    """
+    batch_size = clean_features.size(0)
+
+    # Normalize features to unit sphere
+    clean_features = F.normalize(clean_features, dim=1)
+    noisy_features = F.normalize(noisy_features, dim=1)
+
+    # Concatenate clean and noisy features
+    # Shape: [2*batch_size, feature_dim]
+    features = torch.cat([clean_features, noisy_features], dim=0)
+
+    # Compute cosine similarity matrix for all pairs
+    # Shape: [2*batch_size, 2*batch_size]
+    similarity_matrix = torch.mm(features, features.t()) / temperature
+
+    # Create mask for positive pairs
+    # clean[i] is positive with noisy[i] and vice versa
+    batch_indices = torch.arange(batch_size, device=device)
+    positive_mask = torch.zeros((2 * batch_size, 2 * batch_size), device=device, dtype=torch.bool)
+
+    # Clean samples (first batch_size) are positive with corresponding noisy samples (second batch_size)
+    positive_mask[batch_indices, batch_indices + batch_size] = True
+    # Noisy samples are positive with corresponding clean samples
+    positive_mask[batch_indices + batch_size, batch_indices] = True
+
+    # Create mask to exclude self-similarity (diagonal)
+    self_mask = torch.eye(2 * batch_size, device=device, dtype=torch.bool)
+
+    # Mask out self-similarity from similarity matrix
+    similarity_matrix = similarity_matrix.masked_fill(self_mask, float('-inf'))
+
+    # Extract positive similarities
+    positive_similarities = similarity_matrix[positive_mask].view(2 * batch_size, -1)
+
+    # For NT-Xent, we compute log-softmax over all similarities except self
+    # Then take the positive similarity values
+    log_prob = F.log_softmax(similarity_matrix, dim=1)
+    positive_log_prob = log_prob[positive_mask].view(2 * batch_size, -1)
+
+    # NT-Xent loss is negative log probability of positive pairs
+    loss = -positive_log_prob.mean()
+
+    return loss
+
+def calculate_multi_positive_nt_xent_loss(anchor_features, positive_features_list, temperature=0.07, device='cuda'):
+    """
+    NT-Xent loss with multiple positives (different far-field versions of same utterance).
+    Each clean sample has multiple positive pairs from different microphones.
+    """
+    batch_size = anchor_features.size(0)
+    num_positives = len(positive_features_list)
+
+    # Normalize anchor features
+    anchor_features = F.normalize(anchor_features, dim=1)
+
+    # Normalize and concatenate all positive features
+    positive_features = []
+    for pos_feat in positive_features_list:
+        positive_features.append(F.normalize(pos_feat, dim=1))
+
+    # Concatenate: [anchor, pos1, pos2, ..., posN]
+    # Shape: [(1 + num_positives) * batch_size, feature_dim]
+    all_features = torch.cat([anchor_features] + positive_features, dim=0)
+
+    # Compute similarity matrix
+    similarity_matrix = torch.mm(all_features, all_features.t()) / temperature
+
+    # Create positive mask
+    total_samples = (1 + num_positives) * batch_size
+    positive_mask = torch.zeros((total_samples, total_samples), device=device, dtype=torch.bool)
+
+    batch_indices = torch.arange(batch_size, device=device)
+
+    # Anchor samples (first batch_size) are positive with all corresponding positive samples
+    for i in range(num_positives):
+        start_idx = (i + 1) * batch_size
+        end_idx = start_idx + batch_size
+        positive_mask[batch_indices, start_idx + batch_indices] = True
+        positive_mask[start_idx + batch_indices, batch_indices] = True
+
+    # Create self-mask to exclude diagonal
+    self_mask = torch.eye(total_samples, device=device, dtype=torch.bool)
+    similarity_matrix = similarity_matrix.masked_fill(self_mask, float('-inf'))
+
+    # Compute NT-Xent loss
+    log_prob = F.log_softmax(similarity_matrix, dim=1)
+
+    # Only consider anchor and positive samples for loss (not pos-pos pairs)
+    anchor_indices = torch.arange(batch_size, device=device)
+    pos_indices = torch.cat([torch.arange(batch_size, device=device) + (i + 1) * batch_size
+                           for i in range(num_positives)])
+
+    relevant_indices = torch.cat([anchor_indices, pos_indices])
+    relevant_positive_mask = positive_mask[relevant_indices][:, relevant_indices]
+    relevant_log_prob = log_prob[relevant_indices][:, relevant_indices]
+
+    # Extract positive log probabilities
+    positive_log_prob = relevant_log_prob[relevant_positive_mask]
+    loss = -positive_log_prob.mean()
+
+    return loss
+
+class EnhancedWhisperTrainer:
+    def __init__(self, whisper_model, processor, device, temperature=0.07):
+        self.whisper_model = whisper_model
+        self.processor = processor
+        self.device = device
+        self.temperature = temperature
+
+    def get_encoder_features(self, input_features, pool_method='attention'):
+        """Extract and pool encoder features with different pooling strategies"""
+        with torch.no_grad():
+            encoder_outputs = self.whisper_model.model.encoder(input_features)
+            hidden_states = encoder_outputs.last_hidden_state  # [batch, seq_len, hidden_dim]
+
+        if pool_method == 'mean':
+            return hidden_states.mean(dim=1)
+        elif pool_method == 'max':
+            return hidden_states.max(dim=1)[0]
+        elif pool_method == 'attention':
+            # Learnable attention pooling
+            attention_weights = torch.softmax(
+                torch.sum(hidden_states * hidden_states.mean(dim=1, keepdim=True), dim=2),
+                dim=1
+            )
+            return torch.sum(hidden_states * attention_weights.unsqueeze(2), dim=1)
+        else:
+            return hidden_states.mean(dim=1)
+
+def train_improved_contrastive_aligned(
+    whisper_model, processor, collator, train_datasets, eval_dataset, device,
+    batch_size=8, num_epochs=20, lr=5e-5, weight_decay=0.01,
+    contrastive_weight=0.3, temperature=0.07, warmup_epochs=1,
+    use_curriculum=False, gradient_accumulation_steps=4, use_multi_positive=True
+):
+    """
+    Improved contrastive training specifically for aligned dataloaders where
+    sample i in dataloader[0] corresponds to sample i in all other dataloaders.
+    Uses NT-Xent loss for contrastive learning.
+    """
+
+    # Setup
+    whisper_model.train()
+    whisper_model.gradient_checkpointing_enable()
+    whisper_model.to(device)
+
+    # Optimizer with warmup
+    optimizer = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
+    scaler = GradScaler()
+
+    # Learning rate scheduler
+    total_steps = len(train_datasets[0]) * num_epochs // batch_size
+    warmup_steps = total_steps * warmup_epochs // num_epochs
+    warmup_steps = 1
+    #scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=total_steps,pct_start=warmup_steps/total_steps)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=total_steps)
+
+    # Create dataloaders - ensure they're aligned
+    dataloaders = []
+    for dataset in train_datasets:
+        dataloader = DataLoader(
+            dataset, batch_size=batch_size, collate_fn=collator,
+            shuffle=False,  # Important: no shuffling to maintain alignment
+            num_workers=2, pin_memory=True
+        )
+        dataloaders.append(dataloader)
+
+    # Training loop
+    best_wer = float('inf')
+    patience_counter = 0
+    patience = 3
+
+    for epoch in range(num_epochs):
+        print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
+
+        # Curriculum learning: start with easier contrastive weight
+        if use_curriculum:
+            current_contrastive_weight = contrastive_weight * min(1.0, (epoch + 1) / warmup_epochs)
+        else:
+            current_contrastive_weight = contrastive_weight
+
+        whisper_model.train()
+        total_loss = 0.0
+        total_asr_loss = 0.0
+        total_contrastive_loss = 0.0
+
+        # Create iterator for all dataloaders
+        min_len = min(len(dl) for dl in dataloaders)
+        data_iterator = iter(zip(*dataloaders))
+
+        pbar = tqdm(range(min_len), desc="Training Steps")
+
+        for step in pbar:
+            try:
+                batches = next(data_iterator)
+                clean_batch = batches[0]  # Close-mic clean data
+                noisy_batches = batches[1:]  # Far-field data (aligned with clean)
+
+                # Prepare clean data
+                clean_inputs = clean_batch['input_features'].to(device)
+                clean_labels = clean_batch['labels'].to(device)
+                clean_labels = clean_labels.masked_fill(
+                    clean_labels == processor.tokenizer.pad_token_id, -100
+                )
+
+                with autocast():
+                    # Forward pass on clean data
+                    clean_outputs = whisper_model(
+                        input_features=clean_inputs, labels=clean_labels
+                    )
+                    asr_loss = clean_outputs.loss
+
+                    # Get encoder features for contrastive learning
+                    clean_features = clean_outputs.encoder_last_hidden_state.mean(dim=1)
+
+                    # Process aligned noisy samples and compute NT-Xent loss
+                    if use_multi_positive and len(noisy_batches) > 1:
+                        # Use multi-positive NT-Xent with all far-field versions
+                        noisy_features_list = []
+                        for noisy_batch in noisy_batches:
+                            noisy_inputs = noisy_batch['input_features'].to(device)
+
+                            # Get encoder features (no need for full forward pass)
+                            with torch.no_grad():
+                                noisy_encoder_outputs = whisper_model.model.encoder(noisy_inputs)
+                                noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
+                                noisy_features_list.append(noisy_features)
+
+                        # Multi-positive NT-Xent loss
+                        contrastive_loss = calculate_multi_positive_nt_xent_loss(
+                            clean_features, noisy_features_list, temperature, device
+                        )
+                    else:
+                        # Use pairwise NT-Xent loss
+                        contrastive_loss = 0.0
+                        num_contrastive_pairs = 0
+
+                        for noisy_batch in noisy_batches:
+                            noisy_inputs = noisy_batch['input_features'].to(device)
+
+                            # Get encoder features (no need for full forward pass)
+                            with torch.no_grad():
+                                noisy_encoder_outputs = whisper_model.model.encoder(noisy_inputs)
+                                noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
+
+                            # Compute NT-Xent loss between clean and this noisy version
+                            batch_contrastive_loss = calculate_nt_xent_loss(
+                                clean_features, noisy_features, temperature, device
+                            )
+                            contrastive_loss += batch_contrastive_loss
+                            num_contrastive_pairs += 1
+
+                        if num_contrastive_pairs > 0:
+                            contrastive_loss = contrastive_loss / num_contrastive_pairs
+
+                    # Combined loss
+                    combined_loss = asr_loss + current_contrastive_weight * contrastive_loss
+
+                # Backward pass with gradient accumulation
+                scaled_loss = combined_loss / gradient_accumulation_steps
+                scaler.scale(scaled_loss).backward()
+
+                if True:#if (step + 1) % gradient_accumulation_steps == 0:
+                    # Gradient clipping
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(whisper_model.parameters(), 1.0)
+
+                    scaler.step(optimizer)
+                    scaler.update()
+                    scheduler.step()
+                    optimizer.zero_grad()
+
+                # Logging
+                total_loss += combined_loss.item()
+                total_asr_loss += asr_loss.item()
+                total_contrastive_loss += contrastive_loss.item()
+
+                pbar.set_postfix({
+                    "ASR Loss": f"{asr_loss.item():.4f}",
+                    "NT-Xent Loss": f"{contrastive_loss.item():.4f}",
+                    "Combined Loss": f"{combined_loss.item():.4f}",
+                    "LR": f"{scheduler.get_last_lr()[0]:.2e}"
+                })
+
+                # Log to wandb
+                if step % 10 == 0:
+                    wandb.log({
+                        "train/asr_loss": asr_loss.item(),
+                        "train/nt_xent_loss": contrastive_loss.item(),
+                        "train/combined_loss": combined_loss.item(),
+                        "train/contrastive_weight": current_contrastive_weight,
+                        "train/learning_rate": scheduler.get_last_lr()[0],
+                        "epoch": epoch
+                    })
+
+                # Memory cleanup
+                torch.cuda.empty_cache()
+
+            except StopIteration:
+                break
+
+        # Validation and early stopping logic
+        whisper_model.eval()
+        # Add your validation logic here
+
+        print(f"Epoch {epoch+1} Summary:")
+        print(f"  Avg ASR Loss: {total_asr_loss/min_len:.4f}")
+        print(f"  Avg NT-Xent Loss: {total_contrastive_loss/min_len:.4f}")
+        print(f"  Avg Combined Loss: {total_loss/min_len:.4f}")
+
+    return whisper_model
+
+# Additional utility functions
+def create_balanced_batches(datasets, batch_size):
+    """Create balanced batches ensuring same utterances across conditions"""
+    # Implementation depends on your dataset structure
+    # Should ensure that batch[0][i] and batch[j][i] are the same utterance
+    # recorded in different conditions
+    pass
+
+def adaptive_temperature_schedule(epoch, max_epochs, initial_temp=0.1, final_temp=0.05):
+    """Adaptive temperature scheduling"""
+    progress = epoch / max_epochs
+    return initial_temp * (final_temp / initial_temp) ** progress
