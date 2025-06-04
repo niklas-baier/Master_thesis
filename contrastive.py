@@ -652,12 +652,17 @@ def train_improved_contrastive_aligned(
     whisper_model, processor, collator, train_datasets, eval_dataset, device,
     batch_size=8, num_epochs=20, lr=5e-5, weight_decay=0.01,
     contrastive_weight=0.3, temperature=0.07, warmup_epochs=1,
-    use_curriculum=False, gradient_accumulation_steps=4, use_multi_positive=True
+    use_curriculum=False, gradient_accumulation_steps=4, use_multi_positive=True,
+    patience=3, min_delta=0.001
 ):
     """
     Improved contrastive training specifically for aligned dataloaders where
     sample i in dataloader[0] corresponds to sample i in all other dataloaders.
-    Uses NT-Xent loss for contrastive learning.
+    Uses NT-Xent loss for contrastive learning with early stopping based on validation ASR loss.
+
+    Args:
+        patience (int): Number of epochs to wait for improvement before stopping
+        min_delta (float): Minimum change in validation ASR loss to qualify as improvement
     """
 
     # Setup
@@ -686,10 +691,16 @@ def train_improved_contrastive_aligned(
         )
         dataloaders.append(dataloader)
 
-    # Training loop
-    best_wer = float('inf')
+    # Create validation dataloader
+    eval_dataloader = DataLoader(
+        eval_dataset, batch_size=batch_size, collate_fn=collator,
+        shuffle=False, num_workers=2, pin_memory=True
+    )
+
+    # Early stopping variables
+    best_val_asr_loss = float('inf')
     patience_counter = 0
-    patience = 3
+    best_model_state = None
 
     for epoch in range(num_epochs):
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
@@ -700,6 +711,7 @@ def train_improved_contrastive_aligned(
         else:
             current_contrastive_weight = contrastive_weight
 
+        # Training phase
         whisper_model.train()
         total_loss = 0.0
         total_asr_loss = 0.0
@@ -742,10 +754,9 @@ def train_improved_contrastive_aligned(
                             noisy_inputs = noisy_batch['input_features'].to(device)
 
                             # Get encoder features (no need for full forward pass)
-                            with torch.no_grad():
-                                noisy_encoder_outputs = whisper_model.model.encoder(noisy_inputs)
-                                noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
-                                noisy_features_list.append(noisy_features)
+                            noisy_encoder_outputs = whisper_model.model.encoder(noisy_inputs)
+                            noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
+                            noisy_features_list.append(noisy_features)
 
                         # Multi-positive NT-Xent loss
                         contrastive_loss = calculate_multi_positive_nt_xent_loss(
@@ -820,18 +831,71 @@ def train_improved_contrastive_aligned(
             except StopIteration:
                 break
 
-        # Validation and early stopping logic
+        # Validation phase - evaluate ASR loss only
         whisper_model.eval()
-        # Add your validation logic here
+        val_asr_loss = 0.0
+        val_steps = 0
 
+        print("Running validation...")
+        with torch.no_grad():
+            for val_batch in tqdm(eval_dataloader, desc="Validation"):
+                val_inputs = val_batch['input_features'].to(device)
+                val_labels = val_batch['labels'].to(device)
+                val_labels = val_labels.masked_fill(
+                    val_labels == processor.tokenizer.pad_token_id, -100
+                )
+
+                with autocast():
+                    val_outputs = whisper_model(
+                        input_features=val_inputs, labels=val_labels
+                    )
+                    val_asr_loss += val_outputs.loss.item()
+                    val_steps += 1
+
+        # Calculate average validation ASR loss
+        avg_val_asr_loss = val_asr_loss / val_steps if val_steps > 0 else float('inf')
+
+        # Early stopping logic based on validation ASR loss
+        improvement = best_val_asr_loss - avg_val_asr_loss
+        if improvement > min_delta:
+            best_val_asr_loss = avg_val_asr_loss
+            patience_counter = 0
+            # Save best model state on CPU to save GPU memory
+            best_model_state = {k: v.cpu() for k, v in whisper_model.state_dict().items()}
+            print(f"✓ New best validation ASR loss: {best_val_asr_loss:.4f}")
+        else:
+            patience_counter += 1
+            print(f"✗ No improvement in validation ASR loss. Patience: {patience_counter}/{patience}")
+
+        # Training summary
         print(f"Epoch {epoch+1} Summary:")
-        print(f"  Avg ASR Loss: {total_asr_loss/min_len:.4f}")
-        print(f"  Avg NT-Xent Loss: {total_contrastive_loss/min_len:.4f}")
-        print(f"  Avg Combined Loss: {total_loss/min_len:.4f}")
+        print(f"  Avg Train ASR Loss: {total_asr_loss/min_len:.4f}")
+        print(f"  Avg Train NT-Xent Loss: {total_contrastive_loss/min_len:.4f}")
+        print(f"  Avg Train Combined Loss: {total_loss/min_len:.4f}")
+        print(f"  Validation ASR Loss: {avg_val_asr_loss:.4f}")
+        print(f"  Best Validation ASR Loss: {best_val_asr_loss:.4f}")
+
+        # Log validation metrics
+        wandb.log({
+            "val/asr_loss": avg_val_asr_loss,
+            "val/best_asr_loss": best_val_asr_loss,
+            "epoch": epoch
+        })
+
+        # Check early stopping condition
+        if patience_counter >= patience:
+            print(f"\nEarly stopping triggered after {epoch+1} epochs!")
+            print(f"Best validation ASR loss: {best_val_asr_loss:.4f}")
+            break
+
+    # Load best model state if available (move back to GPU)
+    if best_model_state is not None:
+        # Move state dict back to GPU before loading
+        best_model_state = {k: v.to(device) for k, v in best_model_state.items()}
+        whisper_model.load_state_dict(best_model_state)
+        print(f"Loaded best model with validation ASR loss: {best_val_asr_loss:.4f}")
 
     return whisper_model
-
-# Additional utility functions
 def create_balanced_batches(datasets, batch_size):
     """Create balanced batches ensuring same utterances across conditions"""
     # Implementation depends on your dataset structure
@@ -843,3 +907,9 @@ def adaptive_temperature_schedule(epoch, max_epochs, initial_temp=0.1, final_tem
     """Adaptive temperature scheduling"""
     progress = epoch / max_epochs
     return initial_temp * (final_temp / initial_temp) ** progress
+def compute_feature_similarity(clean_features, noisy_features):
+    """Compute cosine similarity between clean and noisy features"""
+    clean_norm = F.normalize(clean_features, dim=-1)
+    noisy_norm = F.normalize(noisy_features, dim=-1)
+    similarity = torch.sum(clean_norm * noisy_norm, dim=-1)
+    return similarity.mean().item()

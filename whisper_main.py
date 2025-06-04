@@ -92,9 +92,7 @@ def main(argv):
         transcribe_visualize_log_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
     else:
         if run_details.run_notes == 'contrastive':
-            breakpoint()
             from evaluation import calculate_wer_on_dataset
-            #transcribe_results(test_dataset= train_dataset[0]l, trainer=trainer, run_details=run_details)
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
             BATCH_SIZE = 4 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
@@ -110,11 +108,8 @@ def main(argv):
             clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             start_time = time.perf_counter()
-            #path = transcribe_results(test_dataset=train_dataset[0], trainer=trainer, run_details=run_details)
             print("here")
-            #polars_dummy_evaluation(path)
             wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
-            #transcribe_results(test_dataset= train_dataset[0]l, trainer=trainer, run_details=run_details)
             contrastive_model = train_improved_contrastive_aligned(
                 whisper_model=model,
                 processor=processor,
