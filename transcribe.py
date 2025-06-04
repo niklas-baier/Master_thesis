@@ -75,7 +75,7 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
     labels  = []
     predictions = []
     collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-    test_dataloader= DataLoader(test_dataset, batch_size=16, collate_fn=collator, num_workers=2 )
+    test_dataloader= DataLoader(test_dataset, batch_size=4, collate_fn=collator, num_workers=2 )
     model = trainer.model.eval()
     if run_details.precision =='half':
         model = model.half()
