@@ -82,6 +82,71 @@ def alterative_peft(run_details, model):
     )
 
     model = get_peft_model(model, lora_config)
+    import types
+    original_peft_model_forward = model.forward # Store original reference
+    def whisper_peft_forward_wrapper(
+                    self, # 'self' refers to the PeftModelForSeq2SeqLM instance
+                    *args,
+                    **kwargs
+                ):
+                    #print("DEBUG: whisper_peft_forward_wrapper called!")
+                    #print(f"DEBUG: wrapper received args: {len(args)}")
+                    #print(f"DEBUG: wrapper received kwargs keys: {list(kwargs.keys())}")
+
+                    # Remove input_ids from kwargs if present
+                    if 'input_ids' in kwargs:
+                        #print("DEBUG: Removing input_ids from kwargs")
+                        del kwargs['input_ids']
+
+                    # Store original base model forward
+                    base_model = self.base_model
+                    original_base_forward = base_model.forward
+
+                    def patched_whisper_forward(**base_kwargs):
+                        #print("DEBUG: patched_whisper_forward called!")
+                        #print(f"DEBUG: Received kwargs: {list(base_kwargs.keys())}")
+
+                        # Filter kwargs to only include parameters that Whisper actually accepts
+                        whisper_params = {
+                            'input_features', 'attention_mask', 'decoder_input_ids',
+                            'decoder_attention_mask', 'head_mask', 'decoder_head_mask',
+                            'cross_attn_head_mask', 'encoder_outputs', 'past_key_values',
+                            'decoder_inputs_embeds', 'decoder_position_ids', 'labels',
+                            'use_cache', 'output_attentions', 'output_hidden_states',
+                            'return_dict', 'cache_position'
+                        }
+
+                        filtered_kwargs = {}
+                        for key, value in base_kwargs.items():
+                            if key in whisper_params:
+                                filtered_kwargs[key] = value
+                            else:
+                                pass
+
+                            #print(f"DEBUG: Filtering out unsupported parameter: {key}")
+
+
+                        #print(f"DEBUG: Calling base Whisper with filtered params: {list(filtered_kwargs.keys())}")
+                        return original_base_forward(**filtered_kwargs)
+
+                    # Temporarily patch the base model
+                    base_model.forward = patched_whisper_forward
+
+                    try:
+                        #print(f"DEBUG: Calling original PEFT forward with kwargs: {list(kwargs.keys())}")
+                        result = original_peft_model_forward(self, *args, **kwargs)
+                        #print(f"DEBUG: Got result type: {type(result)}")
+                        return result
+                    finally:
+                        # Always restore the original forward method
+                        base_model.forward = original_base_forward
+
+ 
+    model.forward = types.MethodType(whisper_peft_forward_wrapper, model)
+    def make_inputs_require_grad(module, input, output):
+        output.requires_grad_(True)
+    model.model.model.encoder.conv1.register_forward_hook(make_inputs_require_grad)
+            
 
     # Check trainable params
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

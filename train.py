@@ -127,7 +127,6 @@ def generate_training_args(run_details: RunDetails)-> Seq2SeqTrainingArguments:
         "logging_dir": './logs',
         "gradient_accumulation_steps": 1,
         "gradient_checkpointing": True,
-        "evaluation_strategy": "no",
         "predict_with_generate": True,
         "save_steps": save_steps,
         "eval_steps": save_steps,
@@ -471,3 +470,4 @@ class WhisperSeq2SeqTrainer(Seq2SeqTrainer):
         )
         loss = outputs.loss
         return (loss, outputs) if return_outputs else loss
+

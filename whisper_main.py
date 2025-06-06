@@ -94,7 +94,7 @@ def main(argv):
         if run_details.run_notes == 'contrastive':
             from evaluation import calculate_wer_on_dataset
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-            BATCH_SIZE = 4 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            BATCH_SIZE = 16 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
                 BATCH_SIZE = 64
             NUM_EPOCHS = 20
@@ -109,7 +109,7 @@ def main(argv):
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             start_time = time.perf_counter()
             print("here")
-            wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
+            #wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
             contrastive_model = train_improved_contrastive_aligned(
                 whisper_model=model,
                 processor=processor,
@@ -126,8 +126,6 @@ def main(argv):
             end_time = time.perf_counter()
             elapsed_time = end_time - start_time
 
-            wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=contrastive_model, run_details = run_details,processor=processor, device=device)
-            breakpoint()
             args_copy = args
             args_copy.run_notes = 'ntxent evaluation'
             args_copy.train_state= 'NT'
