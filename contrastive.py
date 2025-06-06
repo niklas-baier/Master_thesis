@@ -735,6 +735,7 @@ def train_improved_contrastive_aligned(
                 clean_labels = clean_labels.masked_fill(
                     clean_labels == processor.tokenizer.pad_token_id, -100
                 )
+            
 
                 with autocast():
                     # Forward pass on clean data
@@ -745,23 +746,32 @@ def train_improved_contrastive_aligned(
 
                     # Get encoder features for contrastive learning
                     clean_features = clean_outputs.encoder_last_hidden_state.mean(dim=1)
-
+                    noisy_asr_loss = 0
                     # Process aligned noisy samples and compute NT-Xent loss
                     if use_multi_positive and len(noisy_batches) > 1:
                         # Use multi-positive NT-Xent with all far-field versions
                         noisy_features_list = []
                         for noisy_batch in noisy_batches:
                             noisy_inputs = noisy_batch['input_features'].to(device)
+                            noisy_labels = noisy_batch['labels'].to(device)
+                            noisy_labels = noisy_labels.masked_fill(noisy_labels == processor.tokenizer.pad_token_id, -100)
+
 
                             # Get encoder features (no need for full forward pass)
-                            noisy_encoder_outputs = whisper_model.model.encoder(noisy_inputs)
-                            noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
+                            #noisy_encoder_outputs = whisper_model.model.model.encoder(noisy_inputs)
+                            #noisy_features = noisy_encoder_outputs.last_hidden_state.mean(dim=1)
+                            noisy_outputs = whisper_model(input_features=noisy_inputs, labels=clean_labels)
+                            noisy_asr_loss += noisy_outputs.loss *(1/5)
+                            noisy_features = noisy_outputs.encoder_last_hidden_state.mean(dim=1)
+
+
                             noisy_features_list.append(noisy_features)
 
                         # Multi-positive NT-Xent loss
                         contrastive_loss = calculate_multi_positive_nt_xent_loss(
                             clean_features, noisy_features_list, temperature, device
                         )
+                        asr_loss = asr_loss + noisy_asr_loss
                     else:
                         # Use pairwise NT-Xent loss
                         contrastive_loss = 0.0
