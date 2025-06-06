@@ -117,6 +117,7 @@ def main(argv):
                 train_datasets=train_dataset,
                 eval_dataset=eval_dataset,
                 device=device,
+                batch_size=BATCH_SIZE,
                 use_multi_positive=True,  # Use all far-field mics as positives
                 temperature=0.07,         # Lower temp = harder negatives
                 contrastive_weight=0.3,
