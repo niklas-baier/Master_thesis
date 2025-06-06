@@ -16,6 +16,7 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument('--ema', type=float, required=False, choices=[0.9,0.99,0.999,0.9999])
     parser.add_argument('--lr', type=float, required=False, choices=[0.001,0.0001,0.00001,0.0005])
     parser.add_argument('--weight_decay', type=float, required=False, choices=[0.01,0.001,0.00005,0.005])
+    parser.add_argument('--subset_ratio', type=float, required=False, choices=[0.1])
 
 
 

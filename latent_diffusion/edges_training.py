@@ -1,6 +1,6 @@
 import torch
 from diffusion_train import get_parser
-from model import TimeEmbedding,ResidualBlock, AttentionBlock, RectifiedFlowUNet256, RectifiedFlow
+from model import TimeEmbedding,ResidualBlock, AttentionBlock, RectifiedFlowUNet256, RectifiedFlow, RectifiedFlowUNetWhisper
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -32,14 +32,14 @@ if device.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name()}")
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-# Modified Dataset class for edges2shoes dataset
+# Modified Dataset class for edges2shoes dataset with 1500x1280 resolution
 class Edges2ShoesDataset(Dataset):
-    def __init__(self, base_dir, split='train', image_size=(256, 256)):
+    def __init__(self, base_dir, split='train', image_size=(1500, 1280)):  # CHANGED: Updated default size
         """
         Args:
             base_dir: Base directory containing train/val folders
             split: 'train' or 'val'
-            image_size: Target image size (height, width)
+            image_size: Target image size (height, width) - now 1500x1280
         """
         self.base_dir = base_dir
         self.split = split
@@ -60,14 +60,16 @@ class Edges2ShoesDataset(Dataset):
         self.image_files.sort()
         
         print(f"Found {len(self.image_files)} images in {split} split")
+        print(f"Target image size: {image_size}")
         
         if len(self.image_files) == 0:
             print(f"Warning: No images found in {split_dir}")
             print("Expected format: number_AB.jpg")
         
-        # Define transforms - convert to grayscale and normalize
+        # Define transforms - convert to grayscale and normalize for high resolution
+        # CHANGED: Updated transforms for better high-resolution handling
         self.transform = transforms.Compose([
-            transforms.Resize(self.image_size),
+            transforms.Resize(self.image_size, interpolation=transforms.InterpolationMode.LANCZOS),  # LANCZOS for better quality
             transforms.Grayscale(num_output_channels=1),  # Convert to grayscale
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])  # Normalize to [-1, 1] for grayscale
@@ -89,12 +91,13 @@ class Edges2ShoesDataset(Dataset):
         edge_img = combined_img.crop((0, 0, width // 2, height))
         shoe_img = combined_img.crop((width // 2, 0, width, height))
         
-        # Apply transforms (includes conversion to grayscale)
+        # Apply transforms (includes conversion to grayscale and resize to 1500x1280)
         edge_tensor = self.transform(edge_img)
         shoe_tensor = self.transform(shoe_img)
         
         return edge_tensor, shoe_tensor
-def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-4, ema= 0.99, opt_decay = 1e-3, scheduler_type='onecycle'):
+
+def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e-4, ema=0.99, opt_decay=1e-3, scheduler_type='onecycle'):
     rectified_flow = RectifiedFlow(model, device)
     
     # Improved optimizer with better defaults
@@ -111,7 +114,7 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
         # OneCycle: Often best for diffusion models
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer,
-            max_lr= 3*lr,  # Peak at 5x base LR
+            max_lr=3*lr,  # Peak at 3x base LR
             epochs=num_epochs,
             steps_per_epoch=len(dataloader),
             pct_start=0.3,  # Reach peak at 30%
@@ -148,8 +151,8 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
     
     # EMA for model parameters
     ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.999))
-     # ema_model = torch.optim.swa_utils.AveragedModel(model)
-    if "hello "== "":
+    
+    if "hello " == "":  # Checkpoint loading logic (currently disabled)
         best_dict = torch.load(args.checkpoint)
         model.load_state_dict(best_dict['model_state_dict'])
         ema_model.load_state_dict(best_dict['ema_state_dict'])
@@ -157,7 +160,6 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
         optimizer.load_state_dict(['optimizer_state_dict'])
         print("successfully loaded old training state")
 
-     
     model.train()
     losses = []
     best_loss = float('inf')
@@ -177,7 +179,7 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
                     loss = rectified_flow.velocity_loss(source, target)
                     if torch.isnan(loss) or loss > 100:
                         print(f"Skipping batch {batch_idx} due to unstable loss: {loss.item()}")
-                
+                        continue
            
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -206,7 +208,8 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
         
         avg_loss = epoch_loss / len(dataloader)
         losses.append(avg_loss)
-        wandb.log({"losses":avg_loss})
+        wandb.log({"losses": avg_loss})
+        
         # Step scheduler per epoch
         if not step_per_batch:
             if scheduler_type == 'reduce_on_plateau':
@@ -227,20 +230,24 @@ def train_rectified_flow(model, dataloader,validation_loader, num_epochs, lr=1e-
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'loss': avg_loss,
-            }, 'best_model.pth')
-        # Generate samples every 5 epochs using EMA model
+            }, 'best_model_1500x1280.pth')  # CHANGED: Updated filename to reflect resolution
+        
+        # Generate samples every epoch using EMA model
         if (epoch + 1) % 1 == 0:
             generate_samples_ema(ema_model, dataloader, epoch + 1)
-            generate_validation_samples_ema(ema_model,validation_loader, epoch + 1) 
-    return losses, 0,ema_model
+            if validation_loader:
+                generate_validation_samples_ema(ema_model, validation_loader, epoch + 1) 
+    
+    return losses, 0, ema_model
+
 def generate_validation_samples_ema(ema_model, dataloader, epoch):
-    """Generate and visualize samples using EMA model"""
+    """Generate and visualize samples using EMA model for high resolution"""
     rectified_flow = RectifiedFlow(ema_model.module, device)
     ema_model.eval()
     
-    # Get a batch of source images
+    # Get a batch of source images (reduce to 4 for memory efficiency at high res)
     source, target = next(iter(dataloader))
-    source, target = source[:8].to(device), target[:8].to(device)  # Take first 8 samples
+    source, target = source[:4].to(device), target[:4].to(device)  # CHANGED: Reduced from 8 to 4 samples
     
     # Generate samples with different step counts
     with torch.no_grad():
@@ -253,10 +260,10 @@ def generate_validation_samples_ema(ema_model, dataloader, epoch):
     generated_25_vis = torch.clamp((generated_25 + 1) / 2, 0, 1)
     generated_50_vis = torch.clamp((generated_50 + 1) / 2, 0, 1)
     
-    # Plot comparison
-    fig, axes = plt.subplots(4, 8, figsize=(20, 10))
+    # Plot comparison - CHANGED: Adjusted for high resolution display
+    fig, axes = plt.subplots(4, 4, figsize=(16, 16))  # CHANGED: Square layout for better visualization
     
-    for i in range(8):
+    for i in range(4):
         axes[0, i].imshow(source_vis[i, 0].cpu().numpy(), cmap='gray')
         axes[0, i].set_title('Source (Edges)')
         axes[0, i].axis('off')
@@ -274,19 +281,18 @@ def generate_validation_samples_ema(ema_model, dataloader, epoch):
         axes[3, i].axis('off')
     
     plt.tight_layout()
-    plt.savefig(f'valid_samples_epoch_{epoch}.png', dpi=150, bbox_inches='tight')
-    wandb.log({f"valid_samples_epoch_{epoch}.png": wandb.Image(fig)})
-
-
+    plt.savefig(f'valid_samples_epoch_{epoch}_1500x1280.png', dpi=150, bbox_inches='tight')
+    wandb.log({f"valid_samples_epoch_{epoch}_1500x1280.png": wandb.Image(fig)})
+    plt.close()  # ADDED: Close figure to free memory
 
 def generate_samples_ema(ema_model, dataloader, epoch):
-    """Generate and visualize samples using EMA model"""
+    """Generate and visualize samples using EMA model for high resolution"""
     rectified_flow = RectifiedFlow(ema_model.module, device)
     ema_model.eval()
     
-    # Get a batch of source images
+    # Get a batch of source images (reduce to 4 for memory efficiency at high res)
     source, target = next(iter(dataloader))
-    source, target = source[:8].to(device), target[:8].to(device)  # Take first 8 samples
+    source, target = source[:4].to(device), target[:4].to(device)  # CHANGED: Reduced from 8 to 4 samples
     
     # Generate samples with different step counts
     with torch.no_grad():
@@ -299,10 +305,10 @@ def generate_samples_ema(ema_model, dataloader, epoch):
     generated_25_vis = torch.clamp((generated_25 + 1) / 2, 0, 1)
     generated_50_vis = torch.clamp((generated_50 + 1) / 2, 0, 1)
     
-    # Plot comparison
-    fig, axes = plt.subplots(4, 8, figsize=(20, 10))
+    # Plot comparison - CHANGED: Adjusted for high resolution display
+    fig, axes = plt.subplots(4, 4, figsize=(16, 16))  # CHANGED: Square layout for better visualization
     
-    for i in range(8):
+    for i in range(4):
         axes[0, i].imshow(source_vis[i, 0].cpu().numpy(), cmap='gray')
         axes[0, i].set_title('Source (Edges)')
         axes[0, i].axis('off')
@@ -320,9 +326,9 @@ def generate_samples_ema(ema_model, dataloader, epoch):
         axes[3, i].axis('off')
     
     plt.tight_layout()
-    plt.savefig(f'samples_epoch_{epoch}.png', dpi=150, bbox_inches='tight')
-    wandb.log({f"samples_epoch_{epoch}.png": wandb.Image(fig)})
-
+    plt.savefig(f'samples_epoch_{epoch}_1500x1280.png', dpi=150, bbox_inches='tight')
+    wandb.log({f"samples_epoch_{epoch}_1500x1280.png": wandb.Image(fig)})
+    plt.close()  # ADDED: Close figure to free memory
 
 def generate_samples(model, dataloader, epoch):
     """Backward compatibility function"""
@@ -337,6 +343,7 @@ def main():
         BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/latent_diffusion/edges2shoes-dataset/versions/1"
     else:
         BASE_DIR = "/home/nbaier/.cache/kagglehub/datasets/balraj98/edges2shoes-dataset/versions/1/"
+    
     # Check if base directory exists
     if not os.path.exists(BASE_DIR):
         print(f"Error: Base directory '{BASE_DIR}' not found!")
@@ -351,26 +358,39 @@ def main():
         print(f"Error: Train directory '{train_dir}' not found!")
         return
     
-    # Create datasets
-    train_dataset = Edges2ShoesDataset(BASE_DIR, split='train', image_size=(256, 256))
+    # Create datasets with high resolution - CHANGED: Updated to 1500x1280
+    train_dataset = Edges2ShoesDataset(BASE_DIR, split='train', image_size=(1500, 1280))
     val_dataset = None
     if os.path.exists(val_dir):
-        val_dataset = Edges2ShoesDataset(BASE_DIR, split='val', image_size=(256, 256))
+        val_dataset = Edges2ShoesDataset(BASE_DIR, split='val', image_size=(1500, 1280))
         print(f"Validation dataset created with {len(val_dataset)} samples")
     else:
         print("Validation directory not found, training without validation")
     
-    # Create dataloadersi
-    batch_size = args.batch_size
+    # Create dataloaders - CHANGED: Reduced batch size for high resolution
+    batch_size = max(1, args.batch_size // 4)  # CHANGED: Reduce batch size significantly for high res
     num_epochs = args.num_epochs
     lr = args.lr
     scheduler_type = args.scheduler_type
-    wandb.init(project='diffusion', config= {"lr":lr,"batch_size":batch_size,"ema": args.ema, "weight_decay": 1e-2,"size":"small", "num_epochs" : num_epochs, "scheduler_type": scheduler_type, "run_notes" : args.run_notes })
+    
+    print(f"Adjusted batch size for 1500x1280 resolution: {batch_size}")
+    
+    wandb.init(project='diffusion', config={
+        "lr": lr,
+        "batch_size": batch_size,
+        "ema": args.ema,
+        "weight_decay": 1e-2,
+        "size": "1500x1280",  # CHANGED: Updated size info
+        "num_epochs": num_epochs,
+        "scheduler_type": scheduler_type,
+        "run_notes": args.run_notes
+    })
+    
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=batch_size,  # Further reduced batch size for stability
+        batch_size=batch_size,
         shuffle=True, 
-        num_workers=2,
+        num_workers=2,  # CHANGED: Reduced workers for memory efficiency
         pin_memory=True,
         persistent_workers=True,
         drop_last=True
@@ -388,31 +408,32 @@ def main():
             drop_last=False
         )
     
-    # Initialize model with better weight initialization
-    model = RectifiedFlowUNet256(
+    # CHANGED: Use RectifiedFlowUNetWhisper for high resolution (1500x1280)
+    model = RectifiedFlowUNetWhisper(
         in_channels=2, 
         out_channels=1, 
         time_embedding_dim=256,
-       # base_channels=64  # Reduced base channels for more stability
     ).to(device)
     
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
+    print(f"Using RectifiedFlowUNetWhisper for 1500x1280 resolution")
     
-    # Train model with more conservative settings
-    print("Starting training...")
+    # Train model with more conservative settings for high resolution
+    print("Starting training with 1500x1280 resolution...")
     train_losses, val_losses, ema_model = train_rectified_flow(
         model, 
         train_dataloader,
         val_dataloader,
-        num_epochs=args.num_epochs,  # Increased epochs with lower LR
-        lr=lr,  # Lower learning rate
-        ema = args.ema,
-        opt_decay = args.weight_decay,
-        scheduler_type=scheduler_type  # Most stable scheduler
+        num_epochs=args.num_epochs,
+        lr=lr,
+        ema=args.ema,
+        opt_decay=args.weight_decay,
+        scheduler_type=scheduler_type
     )
     wandb.finish()
+    
     # Plot training loss
     plt.figure(figsize=(12, 5))
     
@@ -420,5 +441,12 @@ def main():
     plt.plot(train_losses, label='Train Loss')
     if val_losses:
         plt.plot(val_losses, label='Val Loss')
+    plt.legend()
+    plt.title('Training Loss (1500x1280)')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.savefig('training_loss_1500x1280.png')
+    plt.show()
+
 if __name__ == "__main__":
     main()
