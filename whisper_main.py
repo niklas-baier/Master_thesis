@@ -96,7 +96,7 @@ def main(argv):
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
             BATCH_SIZE = 16 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
-                BATCH_SIZE = 64
+                BATCH_SIZE = 128
             NUM_EPOCHS = 20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
@@ -109,6 +109,7 @@ def main(argv):
             dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             start_time = time.perf_counter()
             print("here")
+            wandb.run.tags = wandb.run.tags + ("contrastive", "shuffled", "large batchsize")
             #wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
             contrastive_model = train_improved_contrastive_aligned(
                 whisper_model=model,

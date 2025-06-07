@@ -647,19 +647,24 @@ class EnhancedWhisperTrainer:
             return torch.sum(hidden_states * attention_weights.unsqueeze(2), dim=1)
         else:
             return hidden_states.mean(dim=1)
+import random
+import numpy as np
+from datasets import Dataset
 def train_improved_contrastive_aligned(
     whisper_model, processor, collator, train_datasets, eval_dataset, device,
     batch_size=8, num_epochs=20, lr=5e-5, weight_decay=0.01,
-    contrastive_weight=0.3, noisy_asr_weight=0.3, temperature=0.07, warmup_epochs=1,
+    contrastive_weight=0.3, noisy_asr_weight=0.5, temperature=0.07, warmup_epochs=1,
     use_curriculum=False, gradient_accumulation_steps=4, use_multi_positive=True,
-    patience=3, min_delta=0.001
+    patience=3, min_delta=0.001, shuffle_strategy="synchronized"
 ):
     """
-    Improved contrastive training with proper noisy ASR loss integration.
+    Improved contrastive training with proper shuffling strategies.
     
     Args:
-        noisy_asr_weight (float): Weight for noisy ASR loss component
-        Other args same as before
+        shuffle_strategy (str): One of:
+            - "synchronized": Shuffle all datasets with same random order (maintains alignment)
+            - "epoch_reshuffle": Re-shuffle indices at start of each epoch
+            - "none": No shuffling (original behavior)
     """
 
     # Setup
@@ -667,39 +672,31 @@ def train_improved_contrastive_aligned(
     whisper_model.gradient_checkpointing_enable()
     whisper_model.to(device)
 
-    # Optimizer with warmup
+    # Optimizer and scheduler
     optimizer = optim.AdamW(whisper_model.parameters(), lr=lr, weight_decay=weight_decay)
     scaler = GradScaler()
-
-    # Learning rate scheduler
+    
     total_steps = len(train_datasets[0]) * num_epochs // batch_size
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=total_steps)
-
-    # Create dataloaders - ensure they're aligned
-    dataloaders = []
-    for dataset in train_datasets:
-        dataloader = DataLoader(
-            dataset, batch_size=batch_size, collate_fn=collator,
-            shuffle=False,  # Important: no shuffling to maintain alignment
-            num_workers=2, pin_memory=True
-        )
-        dataloaders.append(dataloader)
-
-    # Create validation dataloader
-    eval_dataloader = DataLoader(
-        eval_dataset, batch_size=batch_size, collate_fn=collator,
-        shuffle=False, num_workers=2, pin_memory=True
-    )
 
     # Early stopping variables
     best_val_asr_loss = float('inf')
     patience_counter = 0
     best_model_state = None
 
+    # Create validation dataloader (no shuffling needed)
+    eval_dataloader = DataLoader(
+        eval_dataset, batch_size=batch_size, collate_fn=collator,
+        shuffle=False, num_workers=2, pin_memory=True
+    )
+
+    # Get dataset size for index management
+    dataset_size = len(train_datasets[0])
+    
     for epoch in range(num_epochs):
         print(f"\n--- Epoch {epoch+1}/{num_epochs} ---")
 
-        # Curriculum learning: gradually increase both weights
+        # Curriculum learning
         if use_curriculum:
             progress = min(1.0, (epoch + 1) / warmup_epochs)
             current_contrastive_weight = contrastive_weight * progress
@@ -708,6 +705,40 @@ def train_improved_contrastive_aligned(
             current_contrastive_weight = contrastive_weight
             current_noisy_asr_weight = noisy_asr_weight
 
+        # Generate shuffled indices for this epoch
+        if shuffle_strategy == "synchronized":
+            # Same shuffle order for all datasets to maintain alignment
+            epoch_indices = list(range(dataset_size))
+            random.shuffle(epoch_indices)
+            
+            # Create subset datasets with shuffled indices
+            shuffled_datasets = []
+            for dataset in train_datasets:
+                shuffled_subset = Subset(dataset, epoch_indices)
+                shuffled_datasets.append(shuffled_subset)
+                
+        elif shuffle_strategy == "epoch_reshuffle":
+            # Different shuffle for each dataset - breaks strict alignment but creates more diverse pairs
+            shuffled_datasets = []
+            for dataset in train_datasets:
+                epoch_indices = list(range(dataset_size))
+                random.shuffle(epoch_indices)
+                shuffled_subset = Subset(dataset, epoch_indices)
+                shuffled_datasets.append(shuffled_subset)
+                
+        else:  # shuffle_strategy == "none"
+            shuffled_datasets = train_datasets
+
+        # Create dataloaders for this epoch
+        dataloaders = []
+        for dataset in shuffled_datasets:
+            dataloader = DataLoader(
+                dataset, batch_size=batch_size, collate_fn=collator,
+                shuffle=False,  # Already shuffled at dataset level
+                num_workers=2, pin_memory=True
+            )
+            dataloaders.append(dataloader)
+
         # Training phase
         whisper_model.train()
         total_loss = 0.0
@@ -715,17 +746,15 @@ def train_improved_contrastive_aligned(
         total_noisy_asr_loss = 0.0
         total_contrastive_loss = 0.0
 
-        # Create iterator for all dataloaders
         min_len = min(len(dl) for dl in dataloaders)
         data_iterator = iter(zip(*dataloaders))
-
-        pbar = tqdm(range(min_len), desc="Training Steps")
+        pbar = tqdm(range(min_len), desc=f"Epoch {epoch+1} Training")
 
         for step in pbar:
             try:
                 batches = next(data_iterator)
-                clean_batch = batches[0]  # Close-mic clean data
-                noisy_batches = batches[1:]  # Far-field data (aligned with clean)
+                clean_batch = batches[0]
+                noisy_batches = batches[1:]
 
                 # Prepare clean data
                 clean_inputs = clean_batch['input_features'].to(device)
@@ -754,7 +783,6 @@ def train_improved_contrastive_aligned(
                             noisy_labels == processor.tokenizer.pad_token_id, -100
                         )
 
-                        # Full forward pass for noisy ASR loss
                         noisy_outputs = whisper_model(
                             input_features=noisy_inputs, labels=noisy_labels
                         )
@@ -769,12 +797,10 @@ def train_improved_contrastive_aligned(
 
                     # Compute contrastive loss
                     if use_multi_positive and len(noisy_features_list) > 1:
-                        # Multi-positive NT-Xent loss
                         contrastive_loss = calculate_multi_positive_nt_xent_loss(
                             clean_features, noisy_features_list, temperature, device
                         )
                     elif len(noisy_features_list) > 0:
-                        # Single positive NT-Xent loss (average over all noisy versions)
                         contrastive_loss = 0.0
                         for noisy_features in noisy_features_list:
                             contrastive_loss += calculate_nt_xent_loss(
@@ -784,23 +810,20 @@ def train_improved_contrastive_aligned(
                     else:
                         contrastive_loss = 0.0
 
-                    # Combined loss with three components
+                    # Combined loss
                     combined_loss = (
                         clean_asr_loss + 
                         current_noisy_asr_weight * noisy_asr_loss + 
                         current_contrastive_weight * contrastive_loss
                     )
 
-                # Backward pass with gradient accumulation
+                # Backward pass
                 scaled_loss = combined_loss / gradient_accumulation_steps
                 scaler.scale(scaled_loss).backward()
 
-                # Gradient step
                 if (step + 1) % gradient_accumulation_steps == 0 or step == min_len - 1:
-                    # Gradient clipping
                     scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(whisper_model.parameters(), 1.0)
-
                     scaler.step(optimizer)
                     scaler.update()
                     scheduler.step()
@@ -813,38 +836,33 @@ def train_improved_contrastive_aligned(
                 total_contrastive_loss += contrastive_loss.item() if isinstance(contrastive_loss, torch.Tensor) else contrastive_loss
 
                 pbar.set_postfix({
-                    "Clean ASR": f"{clean_asr_loss.item():.4f}",
-                    "Noisy ASR": f"{noisy_asr_loss.item() if isinstance(noisy_asr_loss, torch.Tensor) else noisy_asr_loss:.4f}",
-                    "NT-Xent": f"{contrastive_loss.item() if isinstance(contrastive_loss, torch.Tensor) else contrastive_loss:.4f}",
-                    "Combined": f"{combined_loss.item():.4f}",
-                    "LR": f"{scheduler.get_last_lr()[0]:.2e}"
+                    "Clean": f"{clean_asr_loss.item():.4f}",
+                    "Noisy": f"{noisy_asr_loss.item() if isinstance(noisy_asr_loss, torch.Tensor) else noisy_asr_loss:.4f}",
+                    "Contrast": f"{contrastive_loss.item() if isinstance(contrastive_loss, torch.Tensor) else contrastive_loss:.4f}",
+                    "Total": f"{combined_loss.item():.4f}"
                 })
 
-                # Log to wandb
                 if step % 10 == 0:
                     wandb.log({
                         "train/clean_asr_loss": clean_asr_loss.item(),
                         "train/noisy_asr_loss": noisy_asr_loss.item() if isinstance(noisy_asr_loss, torch.Tensor) else noisy_asr_loss,
-                        "train/nt_xent_loss": contrastive_loss.item() if isinstance(contrastive_loss, torch.Tensor) else contrastive_loss,
+                        "train/contrastive_loss": contrastive_loss.item() if isinstance(contrastive_loss, torch.Tensor) else contrastive_loss,
                         "train/combined_loss": combined_loss.item(),
-                        "train/contrastive_weight": current_contrastive_weight,
-                        "train/noisy_asr_weight": current_noisy_asr_weight,
                         "train/learning_rate": scheduler.get_last_lr()[0],
-                        "step": step + epoch * min_len
+                        "step": step + epoch * min_len,
+                        "epoch": epoch
                     })
 
-                # Memory cleanup
                 torch.cuda.empty_cache()
 
             except StopIteration:
                 break
 
-        # Validation phase - evaluate on both clean and noisy if available
+        # Validation phase
         whisper_model.eval()
         val_loss = 0.0
         val_steps = 0
 
-        print("Running validation...")
         with torch.no_grad():
             for val_batch in tqdm(eval_dataloader, desc="Validation"):
                 val_inputs = val_batch['input_features'].to(device)
@@ -860,51 +878,118 @@ def train_improved_contrastive_aligned(
                     val_loss += val_outputs.loss.item()
                     val_steps += 1
 
-        # Calculate average validation loss
         avg_val_loss = val_loss / val_steps if val_steps > 0 else float('inf')
 
-        # Early stopping logic
+        # Early stopping
         improvement = best_val_asr_loss - avg_val_loss
         if improvement > min_delta:
             best_val_asr_loss = avg_val_loss
             patience_counter = 0
-            # Save best model state on CPU to save GPU memory
             best_model_state = {k: v.cpu() for k, v in whisper_model.state_dict().items()}
             print(f"✓ New best validation loss: {best_val_asr_loss:.4f}")
         else:
             patience_counter += 1
-            print(f"✗ No improvement in validation loss. Patience: {patience_counter}/{patience}")
+            print(f"✗ No improvement. Patience: {patience_counter}/{patience}")
 
-        # Training summary
+        # Epoch summary
         avg_steps = max(min_len, 1)
         print(f"Epoch {epoch+1} Summary:")
-        print(f"  Avg Clean ASR Loss: {total_clean_asr_loss/avg_steps:.4f}")
-        print(f"  Avg Noisy ASR Loss: {total_noisy_asr_loss/avg_steps:.4f}")
-        print(f"  Avg NT-Xent Loss: {total_contrastive_loss/avg_steps:.4f}")
-        print(f"  Avg Combined Loss: {total_loss/avg_steps:.4f}")
+        print(f"  Clean ASR Loss: {total_clean_asr_loss/avg_steps:.4f}")
+        print(f"  Noisy ASR Loss: {total_noisy_asr_loss/avg_steps:.4f}")
+        print(f"  Contrastive Loss: {total_contrastive_loss/avg_steps:.4f}")
+        print(f"  Combined Loss: {total_loss/avg_steps:.4f}")
         print(f"  Validation Loss: {avg_val_loss:.4f}")
-        print(f"  Best Validation Loss: {best_val_asr_loss:.4f}")
 
-        # Log validation metrics
         wandb.log({
             "val/loss": avg_val_loss,
             "val/best_loss": best_val_asr_loss,
             "epoch": epoch
         })
 
-        # Check early stopping condition
         if patience_counter >= patience:
-            print(f"\nEarly stopping triggered after {epoch+1} epochs!")
-            print(f"Best validation loss: {best_val_asr_loss:.4f}")
+            print(f"\nEarly stopping after {epoch+1} epochs!")
             break
 
-    # Load best model state if available
+    # Load best model
     if best_model_state is not None:
         best_model_state = {k: v.to(device) for k, v in best_model_state.items()}
         whisper_model.load_state_dict(best_model_state)
         print(f"Loaded best model with validation loss: {best_val_asr_loss:.4f}")
 
     return whisper_model
+
+
+# Alternative approach: Custom Dataset with built-in shuffling
+class AlignedContrastiveDataset(Dataset):
+    """
+    Custom dataset that maintains alignment while allowing flexible shuffling strategies.
+    """
+    def __init__(self, datasets, shuffle_strategy="synchronized"):
+        self.datasets = datasets
+        self.shuffle_strategy = shuffle_strategy
+        self.length = len(datasets[0])
+        
+        # Verify all datasets have same length
+        assert all(len(d) == self.length for d in datasets), "All datasets must have same length"
+        
+        # Initialize indices
+        self.reset_epoch()
+    
+    def reset_epoch(self):
+        """Call this at the start of each epoch to reshuffle indices."""
+        if self.shuffle_strategy == "synchronized":
+            # Same shuffle for all datasets
+            self.indices = list(range(self.length))
+            random.shuffle(self.indices)
+        elif self.shuffle_strategy == "independent":
+            # Different shuffle for each dataset
+            self.indices = [list(range(self.length)) for _ in self.datasets]
+            for idx_list in self.indices:
+                random.shuffle(idx_list)
+        else:  # "none"
+            self.indices = list(range(self.length))
+    
+    def __len__(self):
+        return self.length
+    
+    def __getitem__(self, idx):
+        if self.shuffle_strategy == "synchronized" or self.shuffle_strategy == "none":
+            actual_idx = self.indices[idx]
+            return [dataset[actual_idx] for dataset in self.datasets]
+        else:  # independent
+            return [dataset[indices[idx]] for dataset, indices in zip(self.datasets, self.indices)]
+
+
+# Usage example with the custom dataset approach:
+def create_aligned_dataloader_with_shuffling(datasets, batch_size, collator, shuffle_strategy="synchronized"):
+    """
+    Create a dataloader that handles aligned datasets with proper shuffling.
+    """
+    aligned_dataset = AlignedContrastiveDataset(datasets, shuffle_strategy)
+    
+    def collate_fn(batch):
+        # batch is a list of [sample_from_dataset_0, sample_from_dataset_1, ...]
+        # We need to collate each dataset separately
+        num_datasets = len(batch[0])
+        collated_batches = []
+        
+        for dataset_idx in range(num_datasets):
+            dataset_samples = [item[dataset_idx] for item in batch]
+            collated_batch = collator(dataset_samples)
+            collated_batches.append(collated_batch)
+        
+        return collated_batches
+    
+    dataloader = DataLoader(
+        aligned_dataset, 
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        shuffle=False,  # Shuffling handled by dataset
+        num_workers=2,
+        pin_memory=True
+    )
+    
+    return dataloader
 def adaptive_temperature_schedule(epoch, max_epochs, initial_temp=0.1, final_temp=0.05):
     """Adaptive temperature scheduling"""
     progress = epoch / max_epochs
