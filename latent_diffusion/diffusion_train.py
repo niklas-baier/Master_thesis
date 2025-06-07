@@ -11,11 +11,12 @@ def get_parser()-> argparse.ArgumentParser:
     parser.add_argument( '--run_notes', type=str, required=True,
                          help='Documentation of the run' )
     parser.add_argument( '--checkpoint', type=str, required=False )
-    parser.add_argument('--batch_size', type=int, required=False, choices=[2,4,8,16,32,64,128])
+    parser.add_argument('--batch_size', type=int, required=False, choices=[1,2,4,8,16,32,64,128])
     parser.add_argument('--num_epochs', type=int, required=False, choices=[10,30,50,100,200])
     parser.add_argument('--ema', type=float, required=False, choices=[0.9,0.99,0.999,0.9999])
     parser.add_argument('--lr', type=float, required=False, choices=[0.001,0.0001,0.00001,0.0005])
     parser.add_argument('--weight_decay', type=float, required=False, choices=[0.01,0.001,0.00005,0.005])
+    parser.add_argument('--subset_ratio', type=float, required=False, choices=[0.1])
 
 
 
