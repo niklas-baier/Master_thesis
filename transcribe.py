@@ -172,11 +172,23 @@ def create_polars_df(decoded_sentences:list,decoded_labels:list)->pl.DataFrame:
     return df
 
 
+def ensure_csv_no_problem(run_details):
+    import pandas as pd
+    if run_details.dataset_evaluation_part  == 'dev':
+        df = pd.read_csv('shuffled_test_dataframe.csv')
+        df.to_csv('dev_shuffled_test_dataframe.csv')
+    else:
+        df = pd.read_csv('shuffled_test_dataframe.csv')
+        df.to_csv('eval_shuffled_test_dataframe.csv')
 
+
+        
 def save_evaluation_results_as_csv(run_details:RunDetails, results:pl.DataFrame) -> str:
     #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
-    test_df = pd.read_csv( "shuffled_test_dataframe.csv" )
+    breakpoint()
+    path = f'{run_details.dataset_evaluation_part}_shuffled_test_dataframe.csv'
+    test_df = pd.read_csv( path )
     assert results.shape[0] == test_df.shape[0]
     test_df['labels_trained'] = results['labels']
     test_df['temp'] = results['predictions']

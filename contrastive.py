@@ -652,7 +652,7 @@ import numpy as np
 from datasets import Dataset
 def train_improved_contrastive_aligned(
     whisper_model, processor, collator, train_datasets, eval_dataset, device,
-    batch_size=8, num_epochs=20, lr=5e-5, weight_decay=0.01,
+    batch_size=4, num_epochs=20, lr=5e-5, weight_decay=0.01,
     contrastive_weight=0.3, noisy_asr_weight=0.5, temperature=0.07, warmup_epochs=1,
     use_curriculum=False, gradient_accumulation_steps=4, use_multi_positive=True,
     patience=3, min_delta=0.001, shuffle_strategy="synchronized"

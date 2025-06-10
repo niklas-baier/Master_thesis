@@ -34,7 +34,7 @@ import wandb
 import torchaudio
 from typing import Optional
 from contrastive import train_infonce, train_improved_contrastive_aligned
-from transcribe import transcribe_results, transcribe_helper, validate_results, predict_logits_and_get_strings_from_them, predict, get_hidden_states, flatten_list_once, create_polars_df, save_evaluation_results_as_csv
+from transcribe import transcribe_results, transcribe_helper, validate_results, predict_logits_and_get_strings_from_them, predict, get_hidden_states, flatten_list_once, create_polars_df, save_evaluation_results_as_csv, ensure_csv_no_problem
 def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Change the current working directory to the directory where whisper_main.py is located
@@ -80,6 +80,7 @@ def main(argv):
         trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
         collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
         processor.save_pretrained(training_args.output_dir)
+        ensure_csv_no_problem(run_details)
         return trainer, train_dataset, eval_dataset, test_dataset
     trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details,args=args)
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
@@ -94,10 +95,10 @@ def main(argv):
         if run_details.run_notes == 'contrastive':
             from evaluation import calculate_wer_on_dataset
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
-            BATCH_SIZE = 16 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
+            BATCH_SIZE = 8 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
                 BATCH_SIZE = 128
-            NUM_EPOCHS = 20
+            NUM_EPOCHS =20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
             INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
@@ -105,8 +106,6 @@ def main(argv):
             device = "cuda"
             _,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
-            clean_dataloader= DataLoader(train_dataset[0], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
-            dirty_dataloader= DataLoader(train_dataset[1], batch_size=BATCH_SIZE, collate_fn=collator, num_workers=2 )
             start_time = time.perf_counter()
             print("here")
             wandb.run.tags = wandb.run.tags + ("contrastive", "shuffled", "large batchsize")
@@ -131,6 +130,7 @@ def main(argv):
             args_copy = args
             args_copy.run_notes = 'ntxent evaluation'
             args_copy.train_state= 'NT'
+            breakpoint()
             run_details = generate_rundetails(args_copy)
             #trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details, args=args)
             trainer.model = contrastive_model
