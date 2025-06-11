@@ -433,11 +433,20 @@ def generate_test_features(run_details:"RunDetails") -> Features:
     return Features( basic_features )
 
 
-def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:Features,test_dataset:bool)-> Dataset:
+def Hug_dataset_creation(expanded_df, developer_mode:str,features:Features,test_dataset:bool)-> Dataset:
     #ID 161
     # selects subset if developer mode is selected
     if expanded_df is None:
         return None
+    if isinstance(expanded_df,pd.DataFrame):
+        dataset = Dataset.from_pandas(expanded_df, features=features)
+        shuffled_dataset = dataset
+    if test_dataset:
+        breakpoint()
+        shuffled_test_dataframe = shuffled_dataset.to_pandas()
+        shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
+
+
     expanded_df.reset_index(drop=True, inplace=True)
 
 
@@ -458,11 +467,6 @@ def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:F
             shuffled_test_dataframe = shuffled_dataset.to_pandas()
             shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
         return shuffled_dataset
-
-    if test_dataset:
-
-        shuffled_test_dataframe = shuffled_dataset.to_pandas()
-        shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
 
     return shuffled_dataset
 from functools import *
@@ -532,7 +536,10 @@ def map_datasets(run_details:"RunDetails", train_dataset:Union[Dataset, List[Dat
             train_dataset = train_dataset.map(mapping_function)
     mapping_function = prepare_dataset_seq2seq
     eval_dataset = eval_dataset.map(mapping_function)
-    test_dataset = test_dataset.map(mapping_function)
+    if isinstance(test_dataset, dict):
+        test_dataset = {key : value.map(mapping_function) for key,value in test_dataset.items()}
+    else:
+        test_dataset = test_dataset.map(mapping_function)
     return {'train_dataset':train_dataset, 'eval_dataset': eval_dataset, 'test_dataset':test_dataset}
 
 

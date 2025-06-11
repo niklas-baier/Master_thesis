@@ -67,8 +67,14 @@ def main(argv):
         eval_df = pd.concat([expanded_df, dev_df, eval_df])
 
         eval_df['results'] = eval_df['words']
-        breakpoint()
-        return eval_df
+        from visualizations import extract_session
+        eval_df['group'] = eval_df['file_path'].apply(extract_session)
+        grouped = eval_df.groupby('group')
+        list_of_dfs = [group for _, group in grouped]
+        dict_of_dfs = {name: group for name, group in grouped}
+        dict_of_dfs_no_group = {key: df.drop(columns=['group']) for key, df in dict_of_dfs.items()}
+
+        return dict_of_dfs_no_group
 
 
     def setup(run_details,args):
@@ -83,7 +89,6 @@ def main(argv):
         tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
         if run_details.dataset_evaluation_part == 'eval':
             all = [expanded_df, dev_df]
-            breakpoint()
             expanded_df = pd.concat(all).reset_index(drop=True)
             eval_df['words'] = eval_df['words'].apply(evaluation.chime_normalisation)
             eval_df = eval_df.drop(columns = ['results'])

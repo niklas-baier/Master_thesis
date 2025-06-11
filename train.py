@@ -370,7 +370,7 @@ def get_cached_components() -> Tuple[WhisperTokenizer, AutoModelForSpeechSeq2Seq
     return _cached_tokenizer, _cached_model, _cached_processor
 def get_cached_tokenizer() :
     return _cached_tokenizer
-def generate_datasets(run_details:RunDetails, features:Features, args:argparse, expanded_df:pd.DataFrame, dev_df:pd.DataFrame, eval_df:pd.DataFrame)-> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
+def generate_datasets(run_details:RunDetails, features:Features, args:argparse, expanded_df:pd.DataFrame, dev_df:pd.DataFrame, eval_df)-> Tuple[datasets.Dataset, datasets.Dataset, datasets.Dataset]:
     #ID 160
     from preprocessing import generate_test_features
     from preprocessing import Hug_dataset_creation, generate_dataset_paths, mapped_dataset_exists, map_datasets
@@ -379,8 +379,12 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
 
     eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
     test_features = generate_test_features(run_details)
-    test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
-    eval_df.to_csv( "shuffled_test_dataframe.csv" )
+    if isinstance(eval_df, dict):
+        breakpoint()
+        test_dataset = {key : Hug_dataset_creation(value, run_details.developer_mode, test_features, test_dataset=True)for key,value in eval_df.items()}
+    else:
+        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
+        eval_df.to_csv( "shuffled_test_dataframe.csv" )
     if True:
 
         if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
@@ -416,9 +420,7 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
         # save the data from the dataframe in a csv fails if the file already exists
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features,test_dataset=False )
-            datasets = map_datasets( run_details=run_details, train_dataset=train_dataset,
-                          eval_dataset=eval_dataset,
-                          test_dataset=test_dataset, dataset_paths=dataset_paths )
+        datasets = map_datasets( run_details=run_details, train_dataset=train_dataset, eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
 
     # remove the unncessary columns
 
