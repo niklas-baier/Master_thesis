@@ -54,6 +54,22 @@ def main(argv):
         assert run_details_valid(run_details )
         return run_details
     run_details= generate_rundetails(args)
+    def generate_eval_df(args ,run_details):
+
+        args_copy = args
+
+        copy = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part="eval",oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
+        args_copy.dataset_evaluation_part = "eval"
+        features = preprocessing.generate_features(run_details)
+        expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args_copy, run_details=copy)
+        expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
+        dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
+        eval_df = pd.concat([expanded_df, dev_df, eval_df])
+
+        eval_df['results'] = eval_df['words']
+        breakpoint()
+        return eval_df
+
 
     def setup(run_details,args):
 
@@ -62,10 +78,21 @@ def main(argv):
         expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
         dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
         #expanded_df.to_csv('expanded_df.csv', index=False) the same across multiple iterations
-        all = [expanded_df, dev_df, eval_df]
-        all_df = pd.concat(all).reset_index(drop=True)
+
         #generate_audio_only(all_df)
         tokenizer, model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
+        if run_details.dataset_evaluation_part == 'eval':
+            all = [expanded_df, dev_df]
+            breakpoint()
+            expanded_df = pd.concat(all).reset_index(drop=True)
+            eval_df['words'] = eval_df['words'].apply(evaluation.chime_normalisation)
+            eval_df = eval_df.drop(columns = ['results'])
+            dev_df = eval_df
+            eval_df = generate_eval_df(args, run_details)
+
+
+
+
         train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
         transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
         eval_df.to_csv(transcription_csv_path, index=False)
@@ -83,6 +110,7 @@ def main(argv):
         ensure_csv_no_problem(run_details)
         return trainer, train_dataset, eval_dataset, test_dataset
     trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details,args=args)
+    breakpoint()
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
     def transcribe_visualize_log_results(test_dataset,trainer, run_details):
         transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
