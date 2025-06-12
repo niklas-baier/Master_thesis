@@ -380,13 +380,20 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
     eval_dataset = Hug_dataset_creation( dev_df, run_details.developer_mode, features, test_dataset=False )
     test_features = generate_test_features(run_details)
     if isinstance(eval_df, dict):
-        breakpoint()
+        file_path = "shuffled_test_dataframe.csv"
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            keys = [key for key, _ in eval_df.items()]
+            dataframes = [dataframe for _ , dataframe in eval_df.items()]
+            file_paths = ['shuffled_test_dataframe' + key + '.csv' for key in keys]
+            for file_path, dataframe in zip(file_paths, dataframes):
+                dataframe.to_csv(file_path)
         test_dataset = {key : Hug_dataset_creation(value, run_details.developer_mode, test_features, test_dataset=True)for key,value in eval_df.items()}
     else:
         test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
-        eval_df.to_csv( "shuffled_test_dataframe.csv" )
+        eval_df.to_csv( "shuffled_test_dataframe.csv")
+        print("no dict")
     if True:
-
         if run_details.run_notes == 'contrastive' or run_details.run_notes == 'GAN':
             df_chunks = []
             if run_details.run_notes == 'GAN':
@@ -429,19 +436,19 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
             dataset = dataset.remove_columns( columns_to_be_dropped )
             return dataset
         test_features = generate_test_features(run_details)
-        test_dataset = Hug_dataset_creation( eval_df, run_details.developer_mode, test_features, test_dataset=True )
         train_dataset = datasets['train_dataset']
         if isinstance(train_dataset, List):
             train_dataset = [drop_columns(x) for x in train_dataset]
         else:
             train_dataset = drop_columns(train_dataset)
 
-
         eval_dataset = datasets['eval_dataset']
         eval_dataset = drop_columns(eval_dataset)
-
-        test_dataset = datasets['test_dataset']
-        test_dataset = drop_columns(test_dataset)
+        if isinstance(test_dataset, dict):
+            test_dataset = datasets['test_dataset']
+        else:
+            test_dataset = datasets['test_dataset']
+            test_dataset = {x : drop_columns(test_dataset_part) for x,test_dataset_part in test_dataset.items()}
 
         #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
 

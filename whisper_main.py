@@ -49,10 +49,6 @@ def main(argv):
     parser = get_parser()
     args = parser.parse_args()
     formated_date = preprocessing.get_formated_date()
-    def generate_rundetails(args):
-        run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
-        assert run_details_valid(run_details )
-        return run_details
     run_details= generate_rundetails(args)
     def generate_eval_df(args ,run_details):
 
@@ -66,15 +62,13 @@ def main(argv):
         dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
         eval_df = pd.concat([expanded_df, dev_df, eval_df])
 
-        eval_df['results'] = eval_df['words']
         from visualizations import extract_session
         eval_df['group'] = eval_df['file_path'].apply(extract_session)
         grouped = eval_df.groupby('group')
         list_of_dfs = [group for _, group in grouped]
         dict_of_dfs = {name: group for name, group in grouped}
-        dict_of_dfs_no_group = {key: df.drop(columns=['group']) for key, df in dict_of_dfs.items()}
 
-        return dict_of_dfs_no_group
+        return dict_of_dfs
 
 
     def setup(run_details,args):
@@ -94,13 +88,18 @@ def main(argv):
             eval_df = eval_df.drop(columns = ['results'])
             dev_df = eval_df
             eval_df = generate_eval_df(args, run_details)
-
+            eval_df = {key: df.drop(columns=['group']) for key, df in eval_df.items()}
+            eval_df = { key: (df.drop(columns='__index_level_0__') if '__index_level_0__' in df.columns else df).assign(results=df['results'] if 'results' in df.columns else "")for key, df in eval_df.items()}
 
 
 
         train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
         transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
-        eval_df.to_csv(transcription_csv_path, index=False)
+        if isinstance(eval_df, dict):
+            eval_df_concat = pd.concat([df for df in eval_df.values()], ignore_index=True)
+            eval_df_concat.to_csv(transcription_csv_path, index=False)
+        else:
+            eval_df.to_csv(transcription_csv_path, index=False)
         data_collator = DataCollatorSpeechSeq2SeqWithPadding(
             processor=processor,
             decoder_start_token_id=model.config.decoder_start_token_id,
@@ -115,15 +114,14 @@ def main(argv):
         ensure_csv_no_problem(run_details)
         return trainer, train_dataset, eval_dataset, test_dataset
     trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details,args=args)
-    breakpoint()
     #plot_tsne(model=model, processor=processor, test_dataset=test_dataset, torch_dtype=torch_dtype, run_details=run_details)
-    def transcribe_visualize_log_results(test_dataset,trainer, run_details):
-        transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
-        run_results = visualize_results(transcription_csv_path_trained, run_details)
-        log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
     if run_details.train_state == 'NT':
         #TODO
-        transcribe_visualize_log_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
+        if isinstance(test_dataset, dict):
+            print("evaluating all the test_sessions")
+            generate_transcriptions(test_dataset,args,trainer)
+        else:
+            transcribe_visualize_log_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
     else:
         if run_details.run_notes == 'contrastive':
             from evaluation import calculate_wer_on_dataset
@@ -163,7 +161,6 @@ def main(argv):
             args_copy = args
             args_copy.run_notes = 'ntxent evaluation'
             args_copy.train_state= 'NT'
-            breakpoint()
             run_details = generate_rundetails(args_copy)
             #trainer, train_dataset, eval_dataset, test_dataset = setup(run_details=run_details, args=args)
             trainer.model = contrastive_model
@@ -310,7 +307,6 @@ def main(argv):
 
                 print(f"DEBUG: Model forward method is now: {model.forward}")
                 print(f"DEBUG: Model type: {type(model)}")
-                breakpoint()
                 print("Using WhisperTraineri in training?", isinstance(trainer, WhisperSeq2SeqTrainer))
                 for i in range(num_epochs):
                     print(i)
@@ -355,6 +351,36 @@ def main(argv):
 
         #TODO take it from the mode
     return
+
+def transcribe_visualize_log_results(test_dataset,trainer, run_details):
+    transcription_csv_path_trained = transcribe_results( test_dataset=test_dataset, trainer=trainer,run_details=run_details )
+    run_results = visualize_results(transcription_csv_path_trained, run_details)
+    log_run( run_details=run_details, run_results=run_results, results_path=transcription_csv_path_trained )
+  
+def generate_rundetails(args):
+
+    formated_date = preprocessing.get_formated_date()
+    run_details = RunDetails(precision = args.precision, dataset_name=args.dataset_name, model_id=args.model_id, environment=args.environment,train_state=args.train_state, date=formated_date, version=args.version, device=args.device, task=args.task,developer_mode=args.developer_mode, augmentation=args.augmentation, run_notes=args.run_notes, additional_tokens=args.additional_tokens, dataset_evaluation_part=args.dataset_evaluation_part,oversampling = args.oversampling_clean_data, checkpoint_path=args.checkpoint, data_portion=args.data_portion, beamforming=args.beamforming, SWAD=args.SWAD, diffusion=args.diffusion)
+    assert run_details_valid(run_details )
+    return run_details
+    
+def generate_transcriptions(test_dataset,args,trainer):
+    if isinstance(test_dataset, dict):
+        keys = [key for key,value in test_dataset.items()]
+        datasets = [value for key,value in test_dataset.items()]
+        shuffled_test_dataframe = 'shuffled_test_dataframe'
+        filepaths = [shuffled_test_dataframe + key + '.csv' for key in keys]
+        list_run_details = []
+        for i in range(len(test_dataset)):
+            temp = args.run_notes
+            new_run_notes = temp + "#" +keys[i]
+            args.run_notes= new_run_notes
+            run_details = generate_rundetails(args)    
+            if os.path.isfile(shuffled_test_dataframe):
+                os.remove(shuffled_test_dataframe)
+            test_df = pd.read_csv(filepaths[i])
+            test_df.to_csv(shuffled_test_dataframe)
+            transcribe_visualize_log_results(test_dataset=datasets[i], trainer=trainer, run_details=run_details) 
 
 def generate_audio_only(all_df):
     for i in range(all_df.shape[0]):

@@ -433,20 +433,13 @@ def generate_test_features(run_details:"RunDetails") -> Features:
     return Features( basic_features )
 
 
-def Hug_dataset_creation(expanded_df, developer_mode:str,features:Features,test_dataset:bool)-> Dataset:
+def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:Features,test_dataset:bool)-> Dataset:
     #ID 161
     # selects subset if developer mode is selected
     if expanded_df is None:
         return None
-    if isinstance(expanded_df,pd.DataFrame):
-        dataset = Dataset.from_pandas(expanded_df, features=features)
-        shuffled_dataset = dataset
-    if test_dataset:
+    if isinstance(expanded_df,dict):
         breakpoint()
-        shuffled_test_dataframe = shuffled_dataset.to_pandas()
-        shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
-
-
     expanded_df.reset_index(drop=True, inplace=True)
 
 
@@ -467,6 +460,12 @@ def Hug_dataset_creation(expanded_df, developer_mode:str,features:Features,test_
             shuffled_test_dataframe = shuffled_dataset.to_pandas()
             shuffled_test_dataframe.to_csv("shuffled_test_dataframe.csv")
         return shuffled_dataset
+
+    if test_dataset:
+
+        shuffled_test_dataframe = shuffled_dataset.to_pandas()
+        file_path = "shuffled_test_dataframe.csv"
+        shuffled_test_dataframe.to_csv(file_path,mode='a',header=not file_exists,index=False)
 
     return shuffled_dataset
 from functools import *

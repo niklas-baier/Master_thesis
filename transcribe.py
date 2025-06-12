@@ -186,7 +186,6 @@ def ensure_csv_no_problem(run_details):
 def save_evaluation_results_as_csv(run_details:RunDetails, results:pl.DataFrame) -> str:
     #ID 173
     results_directory = str( f"{run_details.model_id}_{run_details.dataset_name}_{run_details.version}" )
-    breakpoint()
     path = f'{run_details.dataset_evaluation_part}_shuffled_test_dataframe.csv'
     test_df = pd.read_csv( path )
     assert results.shape[0] == test_df.shape[0]
