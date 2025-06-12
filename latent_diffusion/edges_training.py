@@ -1,6 +1,6 @@
 import torch
 from diffusion_train import get_parser
-from model import TimeEmbedding,ResidualBlock, AttentionBlock, RectifiedFlowUNet256, RectifiedFlow, RectifiedFlowUNetWhisper
+from model import TimeEmbedding, RectifiedFlowUNet256, RectifiedFlow, RectifiedFlowUNetWhisper, OptimizedRectifiedFlowUNet
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -409,12 +409,7 @@ def main():
         )
     
     # CHANGED: Use RectifiedFlowUNetWhisper for high resolution (1500x1280)
-    model = RectifiedFlowUNetWhisper(
-        in_channels=2, 
-        out_channels=1, 
-        time_embedding_dim=256,
-    ).to(device)
-    
+    model = OptimizedRectifiedFlowUNet(in_channels=2, out_channels=1).to(device)
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
