@@ -16,6 +16,9 @@ import math
 import os
 import glob
 import wandb
+
+from latent_visualization import  generate_validation_samples_ema, generate_samples_ema 
+#
 # Enable optimizations
 torch.backends.cudnn.benchmark = True  # Optimize for fixed input sizes
 torch.backends.cuda.matmul.allow_tf32 = True  # Allow TF32 for faster training
@@ -154,7 +157,7 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
     scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
     
     # EMA for model parameters
-    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.999))
+    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.8))
 
     
     if "hello " == "":  # Checkpoint loading logic (currently disabled)
