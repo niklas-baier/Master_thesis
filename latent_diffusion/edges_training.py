@@ -34,12 +34,13 @@ if device.type == 'cuda':
 
 # Modified Dataset class for edges2shoes dataset with 1500x1280 resolution
 class Edges2ShoesDataset(Dataset):
-    def __init__(self, base_dir, split='train', image_size=(1500, 1280)):  # CHANGED: Updated default size
+    def __init__(self, base_dir, split='train', image_size=(1500, 1280), max_samples=None):  # Added max_samples parameter
         """
         Args:
             base_dir: Base directory containing train/val folders
             split: 'train' or 'val'
             image_size: Target image size (height, width) - now 1500x1280
+            max_samples: Maximum number of samples to load (None for all)
         """
         self.base_dir = base_dir
         self.split = split
@@ -59,7 +60,13 @@ class Edges2ShoesDataset(Dataset):
         
         self.image_files.sort()
         
+        # Limit dataset size if max_samples is specified
+        if max_samples is not None:
+            self.image_files = self.image_files[:max_samples]
+        
         print(f"Found {len(self.image_files)} images in {split} split")
+        if max_samples is not None:
+            print(f"Limited to {max_samples} samples for faster training")
         print(f"Target image size: {image_size}")
         
         if len(self.image_files) == 0:
@@ -67,14 +74,11 @@ class Edges2ShoesDataset(Dataset):
             print("Expected format: number_AB.jpg")
         
         # Define transforms - convert to grayscale and normalize for high resolution
-        # CHANGED: Updated transforms for better high-resolution handling
         self.transform = transforms.Compose([
-            transforms.Resize(self.image_size, interpolation=transforms.InterpolationMode.LANCZOS),  # LANCZOS for better quality
-            transforms.Grayscale(num_output_channels=1),  # Convert to grayscale
+            transforms.Resize(self.image_size, interpolation=transforms.InterpolationMode.LANCZOS),
+            transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5])  # Normalize to [-1, 1] for grayscale
-        ])
-    
+            transforms.Normalize([0.5], [0.5]) ])   
     def __len__(self):
         return len(self.image_files)
     
@@ -151,6 +155,7 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
     
     # EMA for model parameters
     ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.999))
+
     
     if "hello " == "":  # Checkpoint loading logic (currently disabled)
         best_dict = torch.load(args.checkpoint)
@@ -233,7 +238,7 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
             }, 'best_model_1500x1280.pth')  # CHANGED: Updated filename to reflect resolution
         
         # Generate samples every epoch using EMA model
-        if (epoch + 1) % 1 == 0:
+        if (epoch + 1) % 10 == 0:
             generate_samples_ema(ema_model, dataloader, epoch + 1)
             if validation_loader:
                 generate_validation_samples_ema(ema_model, validation_loader, epoch + 1) 
@@ -260,7 +265,7 @@ def generate_validation_samples_ema(ema_model, dataloader, epoch):
     generated_25_vis = torch.clamp((generated_25 + 1) / 2, 0, 1)
     generated_50_vis = torch.clamp((generated_50 + 1) / 2, 0, 1)
     
-    # Plot comparison - CHANGED: Adjusted for high resolution display
+    # Plot comparison - CHAZZNGED: Adjusted for high resolution display
     fig, axes = plt.subplots(4, 4, figsize=(16, 16))  # CHANGED: Square layout for better visualization
     
     for i in range(4):
@@ -359,7 +364,7 @@ def main():
         return
     
     # Create datasets with high resolution - CHANGED: Updated to 1500x1280
-    train_dataset = Edges2ShoesDataset(BASE_DIR, split='train', image_size=(1500, 1280))
+    train_dataset = Edges2ShoesDataset(BASE_DIR, split='train', image_size=(1500, 1280), max_samples = 10)
     val_dataset = None
     if os.path.exists(val_dir):
         val_dataset = Edges2ShoesDataset(BASE_DIR, split='val', image_size=(1500, 1280))
@@ -369,6 +374,7 @@ def main():
     
     # Create dataloaders - CHANGED: Reduced batch size for high resolution
     batch_size = max(1, args.batch_size // 4)  # CHANGED: Reduce batch size significantly for high res
+    batch_size = 4
     num_epochs = args.num_epochs
     lr = args.lr
     scheduler_type = args.scheduler_type
