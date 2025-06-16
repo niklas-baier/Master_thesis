@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-class TimeEmbedding(nn.Module):
+'''class TimeEmbedding(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -71,6 +71,290 @@ class AttentionBlock(nn.Module):
         out = torch.bmm(attn, v).transpose(-1, -2).view(b, c, h, w)
         
         return self.to_out(out) + x
+'''
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class TimeEmbedding(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, t):
+        device = t.device
+        half_dim = self.dim // 2
+        embeddings = torch.log(torch.tensor(10000.0)) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = t[:, None] * embeddings[None, :]
+        embeddings = torch.cat([embeddings.sin(), embeddings.cos()], dim=-1)
+        return embeddings
+
+class EfficientResidualBlock(nn.Module):
+    """Optimized ResidualBlock with fewer parameters and better efficiency"""
+    def __init__(self, in_channels, out_channels, time_embedding_dim, dropout=0.1):
+        super().__init__()
+        self.time_mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(time_embedding_dim, out_channels)
+        )
+
+        # Use smaller groups for GroupNorm to reduce computation
+        groups = min(8, in_channels)
+        out_groups = min(8, out_channels)
+
+        self.block1 = nn.Sequential(
+            nn.GroupNorm(groups, in_channels),
+            nn.SiLU(),
+            nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        )
+
+        self.block2 = nn.Sequential(
+            nn.GroupNorm(out_groups, out_channels),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1)
+        )
+
+        if in_channels != out_channels:
+            self.residual_conv = nn.Conv2d(in_channels, out_channels, 1)
+        else:
+            self.residual_conv = nn.Identity()
+
+    def forward(self, x, time_emb):
+        h = self.block1(x)
+        h += self.time_mlp(time_emb)[:, :, None, None]
+        h = self.block2(h)
+        return h + self.residual_conv(x)
+
+class LightweightAttentionBlock(nn.Module):
+    """Lightweight attention with reduced computational complexity"""
+    def __init__(self, channels, num_heads=8):
+        super().__init__()
+        self.channels = channels
+        self.num_heads = num_heads
+        self.head_dim = channels // num_heads
+
+        self.group_norm = nn.GroupNorm(min(8, channels), channels)
+        self.to_qkv = nn.Conv2d(channels, channels * 3, 1)
+        self.to_out = nn.Conv2d(channels, channels, 1)
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        x_norm = self.group_norm(x)
+        qkv = self.to_qkv(x_norm)
+        q, k, v = qkv.chunk(3, dim=1)
+
+        # Multi-head attention
+        q = q.view(b, self.num_heads, self.head_dim, h * w).transpose(-1, -2)
+        k = k.view(b, self.num_heads, self.head_dim, h * w)
+        v = v.view(b, self.num_heads, self.head_dim, h * w).transpose(-1, -2)
+
+        # Scaled dot-product attention
+        scale = self.head_dim ** -0.5
+        attn = torch.softmax(torch.matmul(q, k) * scale, dim=-1)
+        out = torch.matmul(attn, v)
+
+        out = out.transpose(-1, -2).contiguous().view(b, c, h, w)
+        return self.to_out(out) + x
+
+class OptimizedRectifiedFlowUNet(nn.Module):
+    """
+    Optimized U-Net for 1500x1280 tensors with padding for power-of-2 dimensions.
+    Reduces parameters while maintaining capacity for denoising task.
+    """
+    def __init__(self, in_channels=2, out_channels=1, time_embedding_dim=128):
+        super().__init__()
+
+        # Reduced time embedding dimension
+        self.time_embedding = TimeEmbedding(time_embedding_dim)
+
+        # Calculate padding to make dimensions power-of-2 friendly
+        # Target: 1536x1280 (closest power-of-2 friendly sizes)
+        self.input_height, self.input_width = 1500, 1280
+        self.padded_height, self.padded_width = 1536, 1280  # 1536 = 3*512, 1280 = 5*256
+
+        # Initial conv - reduced channels
+        self.conv_in = nn.Conv2d(in_channels, 64, 3, padding=1)
+
+        # Encoder with more aggressive channel scaling
+        # Level 1: 1536x1280 -> 768x640
+        self.down1 = nn.ModuleList([
+            EfficientResidualBlock(64, 64, time_embedding_dim),
+        ])
+        self.down_conv1 = nn.Conv2d(64, 128, 3, stride=2, padding=1)
+
+        # Level 2: 768x640 -> 384x320
+        self.down2 = nn.ModuleList([
+            EfficientResidualBlock(128, 128, time_embedding_dim),
+        ])
+        self.down_conv2 = nn.Conv2d(128, 256, 3, stride=2, padding=1)
+
+        # Level 3: 384x320 -> 192x160
+        self.down3 = nn.ModuleList([
+            EfficientResidualBlock(256, 256, time_embedding_dim),
+        ])
+        self.down_conv3 = nn.Conv2d(256, 512, 3, stride=2, padding=1)
+
+        # Level 4: 192x160 -> 96x80
+        self.down4 = nn.ModuleList([
+            EfficientResidualBlock(512, 512, time_embedding_dim),
+        ])
+        self.down_conv4 = nn.Conv2d(512, 512, 3, stride=2, padding=1)
+
+        # Level 5: 96x80 -> 48x40
+        self.down5 = nn.ModuleList([
+            EfficientResidualBlock(512, 512, time_embedding_dim),
+        ])
+        self.down_conv5 = nn.Conv2d(512, 512, 3, stride=2, padding=1)
+
+        # Level 6: 48x40 -> 24x20
+        self.down6 = nn.ModuleList([
+            EfficientResidualBlock(512, 512, time_embedding_dim),
+        ])
+        self.down_conv6 = nn.Conv2d(512, 512, 3, stride=2, padding=1)
+
+        # Middle - minimal but effective
+        self.middle = nn.ModuleList([
+            EfficientResidualBlock(512, 512, time_embedding_dim),
+            LightweightAttentionBlock(512, num_heads=8),
+            EfficientResidualBlock(512, 512, time_embedding_dim),
+        ])
+
+        # Decoder - symmetric to encoder
+        # Up 1: 24x20 -> 48x40
+        self.up_conv1 = nn.ConvTranspose2d(512, 512, 4, stride=2, padding=1)
+        self.up1 = nn.ModuleList([
+            EfficientResidualBlock(1024, 512, time_embedding_dim),  # 512 + 512 skip
+        ])
+
+        # Up 2: 48x40 -> 96x80
+        self.up_conv2 = nn.ConvTranspose2d(512, 512, 4, stride=2, padding=1)
+        self.up2 = nn.ModuleList([
+            EfficientResidualBlock(1024, 512, time_embedding_dim),  # 512 + 512 skip
+        ])
+
+        # Up 3: 96x80 -> 192x160
+        self.up_conv3 = nn.ConvTranspose2d(512, 512, 4, stride=2, padding=1)
+        self.up3 = nn.ModuleList([
+            EfficientResidualBlock(1024, 256, time_embedding_dim),  # 512 + 512 -> 256
+        ])
+
+        # Up 4: 192x160 -> 384x320
+        self.up_conv4 = nn.ConvTranspose2d(256, 256, 4, stride=2, padding=1)
+        self.up4 = nn.ModuleList([
+            EfficientResidualBlock(512, 128, time_embedding_dim),  # 256 + 256 -> 128
+        ])
+
+        # Up 5: 384x320 -> 768x640
+        self.up_conv5 = nn.ConvTranspose2d(128, 128, 4, stride=2, padding=1)
+        self.up5 = nn.ModuleList([
+            EfficientResidualBlock(256, 64, time_embedding_dim),  # 128 + 128 -> 64
+        ])
+
+        # Up 6: 768x640 -> 1536x1280
+        self.up_conv6 = nn.ConvTranspose2d(64, 64, 4, stride=2, padding=1)
+        self.up6 = nn.ModuleList([
+            EfficientResidualBlock(128, 64, time_embedding_dim),  # 64 + 64 -> 64
+        ])
+
+        self.conv_out = nn.Conv2d(64, out_channels, 3, padding=1)
+
+    def forward(self, x, t):
+        # Add padding to make dimensions more GPU-friendly
+        pad_h = self.padded_height - self.input_height  # 36
+        pad_w = self.padded_width - self.input_width    # 0
+
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+
+        time_emb = self.time_embedding(t)
+
+        # Store skip connections
+        skips = []
+
+        # Initial
+        h = self.conv_in(x)
+
+        # Encoder
+        for block in self.down1:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv1(h)
+
+        for block in self.down2:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv2(h)
+
+        for block in self.down3:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv3(h)
+
+        for block in self.down4:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv4(h)
+
+        for block in self.down5:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv5(h)
+
+        for block in self.down6:
+            h = block(h, time_emb)
+        skips.append(h)
+        h = self.down_conv6(h)
+
+        # Middle
+        for block in self.middle:
+            if isinstance(block, LightweightAttentionBlock):
+                h = block(h)
+            else:
+                h = block(h, time_emb)
+
+        # Decoder
+        h = self.up_conv1(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up1:
+            h = block(h, time_emb)
+
+        h = self.up_conv2(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up2:
+            h = block(h, time_emb)
+
+        h = self.up_conv3(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up3:
+            h = block(h, time_emb)
+
+        h = self.up_conv4(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up4:
+            h = block(h, time_emb)
+
+        h = self.up_conv5(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up5:
+            h = block(h, time_emb)
+
+        h = self.up_conv6(h)
+        h = torch.cat([h, skips.pop()], dim=1)
+        for block in self.up6:
+            h = block(h, time_emb)
+
+        h = self.conv_out(h)
+
+        # Remove padding to get back original size
+        if pad_h > 0:
+            h = h[:, :, :self.input_height, :]
+        if pad_w > 0:
+            h = h[:, :, :, :self.input_width]
+
+        return h
 
 # ENHANCED VERSION FOR 256x256 IMAGES
 class RectifiedFlowUNet256(nn.Module):

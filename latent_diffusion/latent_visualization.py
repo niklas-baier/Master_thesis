@@ -4,7 +4,7 @@ from model import RectifiedFlow
 import torch
 import wandb
 def visualize_whisper_batch(clean_audio, prediction, save_path='visualization.png', 
-                          vmin=0, vmax=1, clamp_values=True):
+                          vmin=-1, vmax=1, clamp_values=True):
     """
     Visualize Whisper hidden states as heatmaps.
     

@@ -5,9 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-import torchvision
-import torchvision.transforms as transforms
-from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -16,12 +13,192 @@ import math
 import os
 import glob
 import wandb
+from pathlib import Path
+import re
 
-from latent_visualization import  generate_validation_samples_ema, generate_samples_ema 
-#
+from latent_visualization import visualize_whisper_batch, generate_validation_samples_ema, generate_samples_ema 
+
+# Audio Dataset Classes (from first file)
+class AudioPairDataset(Dataset):
+    def __init__(self, root_dir, shuffle_pairs=True):
+        """
+        Dataset for pairing clean audio (persons) with noisy audio (mic1-5).
+        Each epoch contains ALL possible (person, mic) combinations exactly once.
+        
+        Args:
+            root_dir (str): Root directory containing persons, mic1, mic2, ..., mic5 folders
+            shuffle_pairs (bool): Whether to shuffle the order of pairs each epoch
+        """
+        self.root_dir = Path(root_dir)
+        self.shuffle_pairs = shuffle_pairs
+        
+        # Define directories
+        self.persons_dir = self.root_dir / "persons"
+        self.mic_dirs = [self.root_dir / f"mic{i}" for i in range(1, 6)]
+        
+        # Validate directories exist
+        self._validate_directories()
+        
+        # Get all person files and extract indices
+        self.person_files = self._get_person_files()
+        self.indices = self._extract_indices()
+        
+        # Create all valid (person_idx, mic_num) pairs
+        self.valid_pairs = self._create_all_valid_pairs()
+        
+        # Shuffle pairs for first epoch
+        self.current_epoch_pairs = self.valid_pairs.copy()
+        if self.shuffle_pairs:
+            random.shuffle(self.current_epoch_pairs)
+        
+        print(f"Found {len(self.indices)} person files")
+        print(f"Created {len(self.valid_pairs)} total (person, mic) pairs")
+        print(f"Each epoch will iterate over all {len(self.valid_pairs)} pairs exactly once")
+    
+    def _validate_directories(self):
+        """Check if all required directories exist"""
+        if not self.persons_dir.exists():
+            raise FileNotFoundError(f"Persons directory not found: {self.persons_dir}")
+        
+        for mic_dir in self.mic_dirs:
+            if not mic_dir.exists():
+                raise FileNotFoundError(f"Mic directory not found: {mic_dir}")
+    
+    def _get_person_files(self):
+        """Get all .pth files from persons directory"""
+        person_files = list(self.persons_dir.glob("*P.pth"))
+        if not person_files:
+            raise FileNotFoundError("No person files (*P.pth) found in persons directory")
+        return sorted(person_files)
+    
+    def _extract_indices(self):
+        """Extract numerical indices from person filenames"""
+        indices = []
+        pattern = r'(\d+)P\.pth$'
+        
+        for file_path in self.person_files:
+            match = re.search(pattern, file_path.name)
+            if match:
+                indices.append(int(match.group(1)))
+            else:
+                print(f"Warning: Skipping file with unexpected format: {file_path.name}")
+        
+        return sorted(indices)
+    
+    def _create_all_valid_pairs(self):
+        """Create all valid (person_idx, mic_num) combinations"""
+        valid_pairs = []
+        
+        for person_idx in self.indices:
+            for mic_num in range(1, 6):
+                mic_file = self.mic_dirs[mic_num - 1] / f"{person_idx}M{mic_num}.pth"
+                if mic_file.exists():
+                    valid_pairs.append((person_idx, mic_num))
+                    
+        if not valid_pairs:
+            raise FileNotFoundError("No valid (person, mic) pairs found")
+            
+        print(f"Valid pairs per person (example for first few):")
+        # Show distribution for first few indices
+        for idx in sorted(self.indices)[:3]:
+            mics = [mic_num for person_idx, mic_num in valid_pairs if person_idx == idx]
+            print(f"  Person {idx}: mics {mics}")
+        
+        return valid_pairs
+    
+    def __len__(self):
+        return len(self.current_epoch_pairs)
+    
+    def on_epoch_start(self):
+        """Call this at the start of each epoch to reshuffle pair order"""
+        if self.shuffle_pairs:
+            self.current_epoch_pairs = self.valid_pairs.copy()
+            random.shuffle(self.current_epoch_pairs)
+            print(f"Reshuffled {len(self.current_epoch_pairs)} pairs for new epoch")
+    
+    def __getitem__(self, idx):
+        """
+        Get a specific (person, mic) pair from the current epoch's shuffled list
+        Returns data in format suitable for rectified flow training
+        """
+        # Get the specific pair for this index
+        person_idx, mic_num = self.current_epoch_pairs[idx]
+        
+        # Load clean audio (person) - this will be the target
+        person_file = self.persons_dir / f"{person_idx}P.pth"
+        clean_audio = torch.load(person_file, map_location='cpu')
+        
+        # Load noisy audio (mic) - this will be the source
+        mic_file = self.mic_dirs[mic_num - 1] / f"{person_idx}M{mic_num}.pth"
+        noisy_audio = torch.load(mic_file, map_location='cpu')
+        
+        return {
+            'source': noisy_audio,    # Source domain (noisy mic audio)
+            'target': clean_audio,    # Target domain (clean person audio)
+            'clean': clean_audio,     # For backward compatibility
+            'noisy': noisy_audio,     # For backward compatibility
+            'index': person_idx,
+            'mic_used': mic_num
+        }
+
+
+def create_audio_dataloader(root_dir, batch_size=32, shuffle=False, num_workers=4, 
+                           shuffle_pairs=True, **kwargs):
+    """
+    Create a DataLoader for all possible audio pairs suitable for rectified flow training.
+    """
+    dataset = AudioPairDataset(
+        root_dir=root_dir,
+        shuffle_pairs=shuffle_pairs
+    )
+    
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+        **kwargs
+    )
+
+
+def collate_fn(batch):
+    """
+    Custom collate function for handling variable-length tensors
+    Suitable for rectified flow training
+    """
+    source_tensors = [item['source'] for item in batch]
+    target_tensors = [item['target'] for item in batch]
+    clean_tensors = [item['clean'] for item in batch]
+    noisy_tensors = [item['noisy'] for item in batch]
+    indices = [item['index'] for item in batch]
+    mics_used = [item['mic_used'] for item in batch]
+    
+    # Stack tensors (assuming they have the same shape)
+    try:
+        source_batch = torch.stack(source_tensors)
+        target_batch = torch.stack(target_tensors)
+        clean_batch = torch.stack(clean_tensors)
+        noisy_batch = torch.stack(noisy_tensors)
+    except RuntimeError as e:
+        print(f"Error stacking tensors: {e}")
+        print("Source shapes:", [t.shape for t in source_tensors])
+        print("Target shapes:", [t.shape for t in target_tensors])
+        raise
+    
+    return {
+        'source': source_batch,    # For rectified flow: noisy -> clean
+        'target': target_batch,    # For rectified flow: noisy -> clean
+        'clean': clean_batch,      # For backward compatibility
+        'noisy': noisy_batch,      # For backward compatibility
+        'indices': indices,
+        'mics_used': mics_used
+    }
+
+
 # Enable optimizations
-torch.backends.cudnn.benchmark = True  # Optimize for fixed input sizes
-torch.backends.cuda.matmul.allow_tf32 = True  # Allow TF32 for faster training
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 # Set random seeds for reproducibility
@@ -35,111 +212,41 @@ if device.type == 'cuda':
     print(f"GPU: {torch.cuda.get_device_name()}")
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-# Modified Dataset class for edges2shoes dataset with 1500x1280 resolution
-class Edges2ShoesDataset(Dataset):
-    def __init__(self, base_dir, split='train', image_size=(1500, 1280), max_samples=None):  # Added max_samples parameter
-        """
-        Args:
-            base_dir: Base directory containing train/val folders
-            split: 'train' or 'val'
-            image_size: Target image size (height, width) - now 1500x1280
-            max_samples: Maximum number of samples to load (None for all)
-        """
-        self.base_dir = base_dir
-        self.split = split
-        self.image_size = image_size
-        
-        # Path to split directory
-        split_dir = os.path.join(base_dir, split)
-        
-        if not os.path.exists(split_dir):
-            raise ValueError(f"Split directory '{split_dir}' not found!")
-        
-        # Get all AB.jpg files
-        self.image_files = []
-        for ext in ['*.jpg', '*.jpeg', '*.png']:
-            pattern = os.path.join(split_dir, f"*_AB.{ext.split('.')[-1]}")
-            self.image_files.extend(glob.glob(pattern))
-        
-        self.image_files.sort()
-        
-        # Limit dataset size if max_samples is specified
-        if max_samples is not None:
-            self.image_files = self.image_files[:max_samples]
-        
-        print(f"Found {len(self.image_files)} images in {split} split")
-        if max_samples is not None:
-            print(f"Limited to {max_samples} samples for faster training")
-        print(f"Target image size: {image_size}")
-        
-        if len(self.image_files) == 0:
-            print(f"Warning: No images found in {split_dir}")
-            print("Expected format: number_AB.jpg")
-        
-        # Define transforms - convert to grayscale and normalize for high resolution
-        self.transform = transforms.Compose([
-            transforms.Resize(self.image_size, interpolation=transforms.InterpolationMode.LANCZOS),
-            transforms.Grayscale(num_output_channels=1),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5]) ])   
-    def __len__(self):
-        return len(self.image_files)
-    
-    def __getitem__(self, idx):
-        # Load the combined image
-        img_path = self.image_files[idx]
-        combined_img = Image.open(img_path).convert('RGB')
-        
-        # Get image dimensions
-        width, height = combined_img.size
-        
-        # Split the image in half
-        # Left half: edges, Right half: shoes
-        edge_img = combined_img.crop((0, 0, width // 2, height))
-        shoe_img = combined_img.crop((width // 2, 0, width, height))
-        
-        # Apply transforms (includes conversion to grayscale and resize to 1500x1280)
-        edge_tensor = self.transform(edge_img)
-        shoe_tensor = self.transform(shoe_img)
-        
-        return edge_tensor, shoe_tensor
 
-def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e-4, ema=0.99, opt_decay=1e-3, scheduler_type='onecycle'):
+def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs, lr=1e-4, ema=0.99, opt_decay=1e-3, scheduler_type='onecycle'):
+    """Modified training function for audio data"""
     rectified_flow = RectifiedFlow(model, device)
     
     # Improved optimizer with better defaults
     optimizer = optim.AdamW(
         model.parameters(), 
         lr=lr, 
-        weight_decay=opt_decay,  # Higher weight decay
+        weight_decay=opt_decay,
         betas=(0.9, 0.999),
         eps=1e-8
     )
     
     # Multiple scheduler options
     if scheduler_type == 'onecycle':
-        # OneCycle: Often best for diffusion models
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer,
-            max_lr=3*lr,  # Peak at 3x base LR
+            max_lr=3*lr,
             epochs=num_epochs,
             steps_per_epoch=len(dataloader),
-            pct_start=0.3,  # Reach peak at 30%
-            div_factor=25,  # Initial LR = max_lr/25
+            pct_start=0.3,
+            div_factor=25,
             final_div_factor=1e4
         )
         step_per_batch = True
     elif scheduler_type == 'cosine_restarts':
-        # Cosine with warm restarts
         scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer,
-            T_0=10,  # First restart after 10 epochs
-            T_mult=1,  # Keep same cycle length
-            eta_min=lr * 0.01  # Min LR = 1% of base
+            T_0=10,
+            T_mult=1,
+            eta_min=lr * 0.01
         )
         step_per_batch = False
     elif scheduler_type == 'reduce_on_plateau':
-        # Adaptive based on loss
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode='min',
@@ -157,27 +264,23 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
     scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
     
     # EMA for model parameters
-    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.8))
-
-    
-    if "hello " == "":  # Checkpoint loading logic (currently disabled)
-        best_dict = torch.load(args.checkpoint)
-        model.load_state_dict(best_dict['model_state_dict'])
-        ema_model.load_state_dict(best_dict['ema_state_dict'])
-        scheduler.load_state_dict(best_dict['scheduler_state_dict'])
-        optimizer.load_state_dict(['optimizer_state_dict'])
-        print("successfully loaded old training state")
+    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.5))
 
     model.train()
     losses = []
     best_loss = float('inf')
     
     for epoch in range(num_epochs):
+        # Reshuffle pairs for new epoch
+        dataloader.dataset.on_epoch_start()
+        
         epoch_loss = 0.0
         pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{num_epochs}')
         
-        for batch_idx, (source, target) in enumerate(pbar):
-            source, target = source.to(device, non_blocking=True), target.to(device, non_blocking=True)
+        for batch_idx, batch in enumerate(pbar):
+            # Extract source and target from batch dictionary
+            source = batch['source'].to(device, non_blocking=True)
+            target = batch['target'].to(device, non_blocking=True)
             
             optimizer.zero_grad()
             
@@ -207,7 +310,8 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
             current_lr = optimizer.param_groups[0]['lr']
             pbar.set_postfix({
                 'Loss': f'{loss.item():.4f}',
-                'LR': f'{current_lr:.2e}'
+                'LR': f'{current_lr:.2e}',
+                'Pairs': f"{batch['indices']} - Mics: {batch['mics_used']}"
             })
             
             # Step scheduler per batch if needed
@@ -238,199 +342,156 @@ def train_rectified_flow(model, dataloader, validation_loader, num_epochs, lr=1e
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'loss': avg_loss,
-            }, 'best_model_1500x1280.pth')  # CHANGED: Updated filename to reflect resolution
+            }, 'best_audio_model.pth')
         
-        # Generate samples every epoch using EMA model
-        if (epoch + 1) % 10 == 0:
-            generate_samples_ema(ema_model, dataloader, epoch + 1)
+        # Generate samples every 10 epochs using EMA model
+        if (epoch + 1) % 1 == 0:
+            generate_audio_samples_ema(ema_model, dataloader, epoch + 1)
             if validation_loader:
-                generate_validation_samples_ema(ema_model, validation_loader, epoch + 1) 
+                generate_audio_validation_samples_ema(ema_model, validation_loader, epoch + 1) 
     
-    return losses, 0, ema_model
+    return losses, [], ema_model
 
-def generate_validation_samples_ema(ema_model, dataloader, epoch):
-    """Generate and visualize samples using EMA model for high resolution"""
+
+def generate_audio_samples_ema(ema_model, dataloader, epoch):
+    """Generate and visualize audio samples using EMA model"""
     rectified_flow = RectifiedFlow(ema_model.module, device)
     ema_model.eval()
     
-    # Get a batch of source images (reduce to 4 for memory efficiency at high res)
-    source, target = next(iter(dataloader))
-    source, target = source[:4].to(device), target[:4].to(device)  # CHANGED: Reduced from 8 to 4 samples
+    # Get a batch of source audio data
+    batch = next(iter(dataloader))
+    source = batch['source'][:4].to(device)  # Take first 4 samples
+    target = batch['target'][:4].to(device)
     
     # Generate samples with different step counts
     with torch.no_grad():
         generated_25 = rectified_flow.sample(source, num_steps=25)
-        generated_50 = rectified_flow.sample(source, num_steps=100)
+        generated_100 = rectified_flow.sample(source, num_steps=100)
     
-    # Denormalize for visualization
-    source_vis = (source + 1) / 2
-    target_vis = (target + 1) / 2
-    generated_25_vis = torch.clamp((generated_25 + 1) / 2, 0, 1)
-    generated_50_vis = torch.clamp((generated_50 + 1) / 2, 0, 1)
-    
-    # Plot comparison - CHAZZNGED: Adjusted for high resolution display
-    fig, axes = plt.subplots(4, 4, figsize=(16, 16))  # CHANGED: Square layout for better visualization
-    
-    for i in range(4):
-        axes[0, i].imshow(source_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[0, i].set_title('Source (Edges)')
-        axes[0, i].axis('off')
+    # Use the visualization function from latent_visualization
+    try:
+        # Visualize original comparison
+        visualize_whisper_batch(
+            clean_audio=target - source,  # Difference as clean
+            prediction=generated_25 - source,  # Generated difference
+            save_path=f'audio_samples_epoch_{epoch}_25steps.png'
+        )
+        wandb.log({f"audio_samples_epoch_{epoch}_25steps": wandb.Image(f'audio_samples_epoch_{epoch}_25steps.png')})
         
-        axes[1, i].imshow(generated_25_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[1, i].set_title('Generated (25 steps)')
-        axes[1, i].axis('off')
+        # Visualize with 100 steps
+        visualize_whisper_batch(
+            clean_audio=target - source,
+            prediction=generated_100 - source,
+            save_path=f'audio_samples_epoch_{epoch}_100steps.png'
+        )
+        wandb.log({f"audio_samples_epoch_{epoch}_100steps": wandb.Image(f'audio_samples_epoch_{epoch}_100steps.png')})
         
-        axes[2, i].imshow(generated_50_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[2, i].set_title('Generated (100 steps)')
-        axes[2, i].axis('off')
-        
-        axes[3, i].imshow(target_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[3, i].set_title('Target (Shoes)')
-        axes[3, i].axis('off')
-    
-    plt.tight_layout()
-    plt.savefig(f'valid_samples_epoch_{epoch}_1500x1280.png', dpi=150, bbox_inches='tight')
-    wandb.log({f"valid_samples_epoch_{epoch}_1500x1280.png": wandb.Image(fig)})
-    plt.close()  # ADDED: Close figure to free memory
+    except Exception as e:
+        print(f"Error in visualization: {e}")
+        # Fallback: just save some basic info
+        print(f"Generated shapes - 25 steps: {generated_25.shape}, 100 steps: {generated_100.shape}")
 
-def generate_samples_ema(ema_model, dataloader, epoch):
-    """Generate and visualize samples using EMA model for high resolution"""
-    rectified_flow = RectifiedFlow(ema_model.module, device)
-    ema_model.eval()
-    
-    # Get a batch of source images (reduce to 4 for memory efficiency at high res)
-    source, target = next(iter(dataloader))
-    source, target = source[:4].to(device), target[:4].to(device)  # CHANGED: Reduced from 8 to 4 samples
-    
-    # Generate samples with different step counts
-    with torch.no_grad():
-        generated_25 = rectified_flow.sample(source, num_steps=25)
-        generated_50 = rectified_flow.sample(source, num_steps=100)
-    
-    # Denormalize for visualization
-    source_vis = (source + 1) / 2
-    target_vis = (target + 1) / 2
-    generated_25_vis = torch.clamp((generated_25 + 1) / 2, 0, 1)
-    generated_50_vis = torch.clamp((generated_50 + 1) / 2, 0, 1)
-    
-    # Plot comparison - CHANGED: Adjusted for high resolution display
-    fig, axes = plt.subplots(4, 4, figsize=(16, 16))  # CHANGED: Square layout for better visualization
-    
-    for i in range(4):
-        axes[0, i].imshow(source_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[0, i].set_title('Source (Edges)')
-        axes[0, i].axis('off')
-        
-        axes[1, i].imshow(generated_25_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[1, i].set_title('Generated (25 steps)')
-        axes[1, i].axis('off')
-        
-        axes[2, i].imshow(generated_50_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[2, i].set_title('Generated (100 steps)')
-        axes[2, i].axis('off')
-        
-        axes[3, i].imshow(target_vis[i, 0].cpu().numpy(), cmap='gray')
-        axes[3, i].set_title('Target (Shoes)')
-        axes[3, i].axis('off')
-    
-    plt.tight_layout()
-    plt.savefig(f'samples_epoch_{epoch}_1500x1280.png', dpi=150, bbox_inches='tight')
-    wandb.log({f"samples_epoch_{epoch}_1500x1280.png": wandb.Image(fig)})
-    plt.close()  # ADDED: Close figure to free memory
 
-def generate_samples(model, dataloader, epoch):
-    """Backward compatibility function"""
-    generate_samples_ema(model, dataloader, epoch)
+def generate_audio_validation_samples_ema(ema_model, dataloader, epoch):
+    """Generate validation samples for audio data"""
+    generate_audio_samples_ema(ema_model, dataloader, epoch)  # Same logic for now
+
 
 # Main training script
 def main():
-    # Set your dataset path here
     parser = get_parser()
     args = parser.parse_args()
+    
+    # Set your audio dataset path here
     if args.environment == 'bwcluster':
-        BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/latent_diffusion/edges2shoes-dataset/versions/1"
+        AUDIO_BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/audio_data"  # Update this path
+        AUDIO_BASE_DIR = "/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion"  # Update this path
     else:
-        BASE_DIR = "/home/nbaier/.cache/kagglehub/datasets/balraj98/edges2shoes-dataset/versions/1/"
+        AUDIO_BASE_DIR = "/home/ka/ka_stud/ka_uhicv"  # Update this path
     
     # Check if base directory exists
-    if not os.path.exists(BASE_DIR):
-        print(f"Error: Base directory '{BASE_DIR}' not found!")
-        print("Please update BASE_DIR path in the main() function")
+    if not os.path.exists(AUDIO_BASE_DIR):
+        print(f"Error: Audio base directory '{AUDIO_BASE_DIR}' not found!")
+        print("Please update AUDIO_BASE_DIR path in the main() function")
         return
     
-    # Check if train and val directories exist
-    train_dir = os.path.join(BASE_DIR, 'train')
-    val_dir = os.path.join(BASE_DIR, 'val')
+    # Create audio datasets
+    print("Creating audio datasets...")
     
-    if not os.path.exists(train_dir):
-        print(f"Error: Train directory '{train_dir}' not found!")
+    # Get audio tensor dimensions by loading one sample
+    try:
+        sample_person_file = list(Path(AUDIO_BASE_DIR).glob("persons/*P.pth"))[0]
+        sample_tensor = torch.load(sample_person_file, map_location='cpu')
+        print(f"Audio tensor shape: {sample_tensor.shape}")
+        audio_channels = sample_tensor.shape[0] if len(sample_tensor.shape) > 1 else 1
+        print(f"Detected {audio_channels} audio channels")
+    except Exception as e:
+        print(f"Error loading sample audio file: {e}")
         return
     
-    # Create datasets with high resolution - CHANGED: Updated to 1500x1280
-    train_dataset = Edges2ShoesDataset(BASE_DIR, split='train', image_size=(1500, 1280), max_samples = 10)
-    val_dataset = None
-    if os.path.exists(val_dir):
-        val_dataset = Edges2ShoesDataset(BASE_DIR, split='val', image_size=(1500, 1280))
-        print(f"Validation dataset created with {len(val_dataset)} samples")
-    else:
-        print("Validation directory not found, training without validation")
-    
-    # Create dataloaders - CHANGED: Reduced batch size for high resolution
-    batch_size = max(1, args.batch_size // 4)  # CHANGED: Reduce batch size significantly for high res
-    batch_size = 4
+    # Training parameters
+    batch_size = args.batch_size
     num_epochs = args.num_epochs
     lr = args.lr
     scheduler_type = args.scheduler_type
     
-    print(f"Adjusted batch size for 1500x1280 resolution: {batch_size}")
-    
-    wandb.init(project='diffusion', config={
+    wandb.init(project='audio_diffusion', config={
         "lr": lr,
         "batch_size": batch_size,
         "ema": args.ema,
-        "weight_decay": 1e-2,
-        "size": "1500x1280",  # CHANGED: Updated size info
+        "weight_decay": args.weight_decay,
+        "audio_shape": str(sample_tensor.shape),
         "num_epochs": num_epochs,
         "scheduler_type": scheduler_type,
         "run_notes": args.run_notes
     })
     
-    train_dataloader = DataLoader(
-        train_dataset, 
+    # Create dataloaders
+    train_dataloader = create_audio_dataloader(
+        root_dir=AUDIO_BASE_DIR,
         batch_size=batch_size,
-        shuffle=True, 
-        num_workers=2,  # CHANGED: Reduced workers for memory efficiency
-        pin_memory=True,
-        persistent_workers=True,
-        drop_last=True
+        shuffle=False,  # We handle shuffling in the dataset
+        num_workers=4,
+        shuffle_pairs=True,
+        collate_fn=collate_fn
     )
     
-    val_dataloader = None
-    if val_dataset:
-        val_dataloader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=2,
-            pin_memory=True,
-            persistent_workers=True,
-            drop_last=False
-        )
+    # For now, use train dataloader as validation (as requested)
+    val_dataloader = create_audio_dataloader(
+        root_dir=AUDIO_BASE_DIR,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        shuffle_pairs=False,  # Don't shuffle validation
+        collate_fn=collate_fn
+    )
     
-    # CHANGED: Use RectifiedFlowUNetWhisper for high resolution (1500x1280)
+    print(f"Train dataset size: {len(train_dataloader.dataset)} pairs")
+    print(f"Batches per epoch: {len(train_dataloader)}")
+    
+    # Create model based on audio tensor dimensions
+    # Assuming audio data needs special handling - using RectifiedFlowUNetWhisper
+    if len(sample_tensor.shape) != 3:  # [channels, height, width] format
+        in_channels = sample_tensor.shape[0] * 2  # source + target channels
+        out_channels = sample_tensor.shape[0]
+        model = RectifiedFlowUNetWhisper(in_channels=in_channels, out_channels=out_channels).to(device)
+    else:
+        # Fallback for different tensor formats
+        pass
     model = OptimizedRectifiedFlowUNet(in_channels=2, out_channels=1).to(device)
+    
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
-    print(f"Using RectifiedFlowUNetWhisper for 1500x1280 resolution")
+    print(f"Model input/output channels: {model}")
     
-    # Train model with more conservative settings for high resolution
-    print("Starting training with 1500x1280 resolution...")
-    train_losses, val_losses, ema_model = train_rectified_flow(
+    # Train model
+    print("Starting audio rectified flow training...")
+    train_losses, val_losses, ema_model = train_rectified_flow_audio(
         model, 
         train_dataloader,
         val_dataloader,
-        num_epochs=args.num_epochs,
+        num_epochs=num_epochs,
         lr=lr,
         ema=args.ema,
         opt_decay=args.weight_decay,
@@ -446,11 +507,12 @@ def main():
     if val_losses:
         plt.plot(val_losses, label='Val Loss')
     plt.legend()
-    plt.title('Training Loss (1500x1280)')
+    plt.title('Audio Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.savefig('training_loss_1500x1280.png')
+    plt.savefig('audio_training_loss.png')
     plt.show()
+
 
 if __name__ == "__main__":
     main()
