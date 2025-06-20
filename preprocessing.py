@@ -324,10 +324,19 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
         test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
     if run_details.diffusion == 'Y':
         assert(run_details.beamforming != 'Y')
-        beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
-        test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
-        beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
-        train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+        if run_details.environment == 'bwcluster':
+            base_path = '/pfs/work7/workspace/scratch/uhicv-blah/diffusion_test/Dipco/enhanced_dev' 
+            train_path = os.path.join(base_path, 'train')
+            test_path = os.path.join(base_path, 'test')
+            test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(test_path, os.path.basename(x)))
+            train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(train_path, os.path.basename(x)))
+            breakpoint()
+        else:
+
+            beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
+            test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
+            beamformed_direc = os.path.join(os.getcwd(), 'training_data_from_diffusion_model')
+            train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(beamformed_direc, os.path.basename(x)))
     test_dataframe['try'] = test_dataframe.index
     test_dataframe = test_dataframe.sort_values(by=['file_path', 'try'], ascending=[True, True])
     test_dataframe = test_dataframe.drop(columns = ['try'])
@@ -439,7 +448,7 @@ def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:F
     if expanded_df is None:
         return None
     if isinstance(expanded_df,dict):
-        breakpoint()
+        print("is dict")
     expanded_df.reset_index(drop=True, inplace=True)
 
 
@@ -465,6 +474,7 @@ def Hug_dataset_creation(expanded_df:pd.DataFrame, developer_mode:str,features:F
 
         shuffled_test_dataframe = shuffled_dataset.to_pandas()
         file_path = "shuffled_test_dataframe.csv"
+        file_exists = os.path.isfile(file_path)
         shuffled_test_dataframe.to_csv(file_path,mode='a',header=not file_exists,index=False)
 
     return shuffled_dataset

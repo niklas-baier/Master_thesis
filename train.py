@@ -445,10 +445,10 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
         eval_dataset = datasets['eval_dataset']
         eval_dataset = drop_columns(eval_dataset)
         if isinstance(test_dataset, dict):
-            test_dataset = datasets['test_dataset']
+            test_dataset = datasets['test_dataset'] 
+            test_dataset = {x : drop_columns(test_dataset_part) for x,test_dataset_part in test_dataset.items()}
         else:
             test_dataset = datasets['test_dataset']
-            test_dataset = {x : drop_columns(test_dataset_part) for x,test_dataset_part in test_dataset.items()}
 
         #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
 
