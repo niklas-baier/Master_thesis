@@ -15,12 +15,13 @@ import glob
 import wandb
 from pathlib import Path
 import re
-
+from identity import create_identity_dataloader, identity_collate_fn
+from debugging import load_best_ema_model
 from latent_visualization import visualize_whisper_batch, generate_validation_samples_ema, generate_samples_ema 
 
 # Audio Dataset Classes (from first file)
 class AudioPairDataset(Dataset):
-    def __init__(self, root_dir, shuffle_pairs=True):
+    def __init__(self, root_dir, shuffle_pairs=False):
         """
         Dataset for pairing clean audio (persons) with noisy audio (mic1-5).
         Each epoch contains ALL possible (person, mic) combinations exactly once.
@@ -34,7 +35,7 @@ class AudioPairDataset(Dataset):
         
         # Define directories
         self.persons_dir = self.root_dir / "persons"
-        self.mic_dirs = [self.root_dir / f"mic{i}" for i in range(1, 6)]
+        self.mic_dirs = [self.root_dir / "mic1"]
         
         # Validate directories exist
         self._validate_directories()
@@ -84,28 +85,19 @@ class AudioPairDataset(Dataset):
                 print(f"Warning: Skipping file with unexpected format: {file_path.name}")
         
         return sorted(indices)
-    
     def _create_all_valid_pairs(self):
-        """Create all valid (person_idx, mic_num) combinations"""
-        valid_pairs = []
-        
+        valid_pairs = [] 
         for person_idx in self.indices:
-            for mic_num in range(1, 6):
-                mic_file = self.mic_dirs[mic_num - 1] / f"{person_idx}M{mic_num}.pth"
-                if mic_file.exists():
-                    valid_pairs.append((person_idx, mic_num))
+            # Only check mic1 since we only have one mic directory
+            mic_file = self.mic_dirs[0] / f"{person_idx}M1.pth"
+            if mic_file.exists():
+                valid_pairs.append((person_idx, 1))  # Always mic 1
                     
         if not valid_pairs:
-            raise FileNotFoundError("No valid (person, mic) pairs found")
+            raise FileNotFoundError("No valid (person, mic1) pairs found")
             
-        print(f"Valid pairs per person (example for first few):")
-        # Show distribution for first few indices
-        for idx in sorted(self.indices)[:3]:
-            mics = [mic_num for person_idx, mic_num in valid_pairs if person_idx == idx]
-            print(f"  Person {idx}: mics {mics}")
-        
+        print(f"Found {len(valid_pairs)} valid person-mic1 pairs")
         return valid_pairs
-    
     def __len__(self):
         return len(self.current_epoch_pairs)
     
@@ -117,50 +109,44 @@ class AudioPairDataset(Dataset):
             print(f"Reshuffled {len(self.current_epoch_pairs)} pairs for new epoch")
     
     def __getitem__(self, idx):
-        """
-        Get a specific (person, mic) pair from the current epoch's shuffled list
-        Returns data in format suitable for rectified flow training
-        """
+        """Get a specific (person, mic1) pair - SIMPLIFIED"""
         # Get the specific pair for this index
-        person_idx, mic_num = self.current_epoch_pairs[idx]
-        
+        person_idx, mic_num = self.current_epoch_pairs[idx]  # mic_num will always be 1
+      
         # Load clean audio (person) - this will be the target
         person_file = self.persons_dir / f"{person_idx}P.pth"
         clean_audio = torch.load(person_file, map_location='cpu')
         
-        # Load noisy audio (mic) - this will be the source
-        mic_file = self.mic_dirs[mic_num - 1] / f"{person_idx}M{mic_num}.pth"
+        # Load noisy audio (mic1) - this will be the source
+        mic_file = self.mic_dirs[0] / f"{person_idx}M1.pth"  # Always mic1
         noisy_audio = torch.load(mic_file, map_location='cpu')
         
         return {
-            'source': noisy_audio,    # Source domain (noisy mic audio)
+            'source': noisy_audio,    # Source domain (noisy mic1 audio)
             'target': clean_audio,    # Target domain (clean person audio)
             'clean': clean_audio,     # For backward compatibility
             'noisy': noisy_audio,     # For backward compatibility
             'index': person_idx,
-            'mic_used': mic_num
+            'mic_used': 1  # Always 1
         }
-
-
-def create_audio_dataloader(root_dir, batch_size=32, shuffle=False, num_workers=4, 
-                           shuffle_pairs=True, **kwargs):
+def create_audio_dataloader(root_dir, batch_size=32, shuffle=True, num_workers=4, 
+                           shuffle_pairs=False, **kwargs):  # Set shuffle_pairs=False
     """
     Create a DataLoader for all possible audio pairs suitable for rectified flow training.
     """
     dataset = AudioPairDataset(
         root_dir=root_dir,
-        shuffle_pairs=shuffle_pairs
+        shuffle_pairs=False  # Disable custom shuffling
     )
     
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=shuffle,  # Use DataLoader's shuffle instead
         num_workers=num_workers,
         pin_memory=True,
         **kwargs
     )
-
 
 def collate_fn(batch):
     """
@@ -173,7 +159,6 @@ def collate_fn(batch):
     noisy_tensors = [item['noisy'] for item in batch]
     indices = [item['index'] for item in batch]
     mics_used = [item['mic_used'] for item in batch]
-    
     # Stack tensors (assuming they have the same shape)
     try:
         source_batch = torch.stack(source_tensors)
@@ -213,7 +198,7 @@ if device.type == 'cuda':
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
 
-def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs, lr=1e-4, ema=0.99, opt_decay=1e-3, scheduler_type='onecycle'):
+def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs, lr=1e-4, ema=0.99, opt_decay=1e-3, scheduler_type='onecycle', checkpoint = ""):
     """Modified training function for audio data"""
     rectified_flow = RectifiedFlow(model, device)
     
@@ -264,45 +249,81 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
     scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
     
     # EMA for model parameters
-    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.5))
+    ema_model = torch.optim.swa_utils.AveragedModel(model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(decay=0.99))
 
     model.train()
     losses = []
     best_loss = float('inf')
-    
+    if checkpoint != "":
+        try:
+            model = load_best_ema_model(checkpoint, device)
+            model.eval()
+            
+            # Handle EMA model wrapper
+            if hasattr(model, 'module'):
+                flow_model = model.module
+            else:
+                flow_model = model
+                
+            # Create RectifiedFlow instance
+            rectified_flow = RectifiedFlow(flow_model, device)
+            print("✓ RectifiedFlow instance created successfully!")
+            
+            # Print model info
+            total_params = sum(p.numel() for p in flow_model.parameters())
+            print(f"✓ Model parameters: {total_params:,}")
+            
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            return
+        model.train()
+        # Get a sample batch from your dataloader
     for epoch in range(num_epochs):
         # Reshuffle pairs for new epoch
         dataloader.dataset.on_epoch_start()
         
         epoch_loss = 0.0
         pbar = tqdm(dataloader, desc=f'Epoch {epoch+1}/{num_epochs}')
-        
+        avg_mse_loss = 0
+        batch_counter = 0
+
         for batch_idx, batch in enumerate(pbar):
             # Extract source and target from batch dictionary
             source = batch['source'].to(device, non_blocking=True)
             target = batch['target'].to(device, non_blocking=True)
+            #target = source + 0.1*(target - source)
+            mse_loss = torch.nn.functional.mse_loss(source, target)
+            avg_mse_loss = avg_mse_loss + mse_loss
+            batch_counter = batch_counter + 1
             
             optimizer.zero_grad()
             
             # Mixed precision forward pass
-            if scaler is not None:
-                with torch.cuda.amp.autocast():
-                    loss = rectified_flow.velocity_loss(source, target)
-                    if torch.isnan(loss) or loss > 100:
-                        print(f"Skipping batch {batch_idx} due to unstable loss: {loss.item()}")
-                        continue
-           
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
+            if checkpoint != "":
                 loss = rectified_flow.velocity_loss(source, target)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
-            
+            else:
+
+                if scaler is not None:
+                    with torch.cuda.amp.autocast():
+                        loss = rectified_flow.velocity_loss(source, target)
+                        if torch.isnan(loss) or loss > 100:
+                            print(f"Skipping batch {batch_idx} due to unstable loss: {loss.item()}")
+                            continue
+               
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss = rectified_flow.velocity_loss(source, target)
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                
             # Update EMA
             ema_model.update_parameters(model)
             
@@ -311,7 +332,6 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
             pbar.set_postfix({
                 'Loss': f'{loss.item():.4f}',
                 'LR': f'{current_lr:.2e}',
-                'Pairs': f"{batch['indices']} - Mics: {batch['mics_used']}"
             })
             
             # Step scheduler per batch if needed
@@ -321,7 +341,7 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
         avg_loss = epoch_loss / len(dataloader)
         losses.append(avg_loss)
         wandb.log({"losses": avg_loss})
-        
+        assert(avg_mse_loss/batch_counter <=0.15)
         # Step scheduler per epoch
         if not step_per_batch:
             if scheduler_type == 'reduce_on_plateau':
@@ -342,7 +362,7 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'loss': avg_loss,
-            }, 'best_audio_model.pth')
+            }, '8_identity8_test_identity_50mapping.pth')
         
         # Generate samples every 10 epochs using EMA model
         if (epoch + 1) % 1 == 0:
@@ -431,6 +451,7 @@ def main():
     
     # Training parameters
     batch_size = args.batch_size
+    print(batch_size)
     num_epochs = args.num_epochs
     lr = args.lr
     scheduler_type = args.scheduler_type
@@ -443,18 +464,21 @@ def main():
         "audio_shape": str(sample_tensor.shape),
         "num_epochs": num_epochs,
         "scheduler_type": scheduler_type,
-        "run_notes": args.run_notes
+        "run_notes": args.run_notes,
+        "path" : args.checkpoint
     })
     
     # Create dataloaders
     train_dataloader = create_audio_dataloader(
         root_dir=AUDIO_BASE_DIR,
         batch_size=batch_size,
-        shuffle=False,  # We handle shuffling in the dataset
+        shuffle=True,  # We handle shuffling in the dataset
         num_workers=4,
         shuffle_pairs=True,
         collate_fn=collate_fn
     )
+
+    #train_dataloader = create_identity_dataloader( root_dir=AUDIO_BASE_DIR,batch_size=batch_size,shuffle=True,num_workers=4,shuffle_files=True,collate_fn=identity_collate_fn )
     
     # For now, use train dataloader as validation (as requested)
     val_dataloader = create_audio_dataloader(
@@ -479,7 +503,7 @@ def main():
         # Fallback for different tensor formats
         pass
     model = OptimizedRectifiedFlowUNet(in_channels=2, out_channels=1).to(device)
-    
+    print("using optimized Flow unet")
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
@@ -495,7 +519,8 @@ def main():
         lr=lr,
         ema=args.ema,
         opt_decay=args.weight_decay,
-        scheduler_type=scheduler_type
+        scheduler_type=scheduler_type,
+        checkpoint = args.checkpoint,
     )
     wandb.finish()
     
