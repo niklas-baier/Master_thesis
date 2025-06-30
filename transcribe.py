@@ -71,7 +71,8 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     return df
 def generate_prediction_from_hidden_state(path,model, processor):
     from transformers.modeling_outputs import BaseModelOutput
-    hidden_state = torch.load(path, map_location = torch.device('cpu'))
+    hidden_state = torch.load(path)
+    hideen_state = hidden_state.to("cuda")
     encoder_outputs = BaseModelOutput(last_hidden_state=hidden_state)
     outputs = model.generate(encoder_outputs=encoder_outputs)
     prediction = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
@@ -112,18 +113,17 @@ def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details)
         for prefix in numeric_prefixes:
             pattern = os.path.join(train_directory, f'{prefix}*')
             corresponding_files.extend(glob.glob(pattern))
-            print(corresponding_files)
-            prediction_org = [generate_prediction(x) for x in corresponding_files]
-            org_predictions.append(prediction_org)
+        prediction_org = [generate_prediction(x) for x in corresponding_files]
+        org_predictions.append(prediction_org)
         predictions = [generate_prediction(x) for x in abs_paths]
         print(predictions)
         print(org_predictions)
         return predictions
-    '''train_p = transcribe_directory(diffusion_train, persons)
-    test_p = transcribe_directory(diffusion_test, test_latent)
-    abs_paths = generate_list_of_local_files(diffusion_train)
+    #train_p = transcribe_directory(diffusion_train, persons)
+    #test_p = transcribe_directory(diffusion_test, test_latent)
+    #abs_paths = generate_list_of_local_files(diffusion_train)
 
-    predictions = [generate_prediction(x) for x in abs_paths]'''
+    #predictions = [generate_prediction(x) for x in abs_paths]
 
     for batch in tqdm(test_dataloader, desc = "get_hidden_states"):
         with torch.no_grad():

@@ -33,7 +33,7 @@ import copy
 import wandb
 import torchaudio
 from typing import Optional
-from contrastive import train_infonce, train_improved_contrastive_aligned
+from contrastive import  train_with_improvements
 from transcribe import transcribe_results, transcribe_helper, validate_results, predict_logits_and_get_strings_from_them, predict, get_hidden_states, flatten_list_once, create_polars_df, save_evaluation_results_as_csv, ensure_csv_no_problem
 def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -74,7 +74,6 @@ def main(argv):
 
         features = preprocessing.generate_features(run_details)
         expanded_df, dev_df, eval_df = preprocessing.generate_dfs(args=args, run_details=run_details)
-        eval_df = pd.concat([expanded_df, dev_df, eval_df])
         expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
         dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
         #expanded_df.to_csv('expanded_df.csv', index=False) the same across multiple iterations
@@ -125,12 +124,12 @@ def main(argv):
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
             BATCH_SIZE = 8 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
-                BATCH_SIZE = 128
+                BATCH_SIZE = 8
             NUM_EPOCHS =20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
             INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
-            TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+            TEMPERATURE = 0.15 # Common temperature value for InfoNCE
             device = "cuda"
             _,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
@@ -138,7 +137,8 @@ def main(argv):
             print("here")
             wandb.run.tags = wandb.run.tags + ("contrastive", "shuffled", "large batchsize")
             #wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
-            contrastive_model = train_improved_contrastive_aligned(
+            breakpoint()
+            contrastive_model = train_with_improvements(
                 whisper_model=model,
                 processor=processor,
                 collator=collator,
@@ -148,7 +148,7 @@ def main(argv):
                 batch_size=BATCH_SIZE,
                 use_multi_positive=True,  # Use all far-field mics as positives
                 temperature=0.07,         # Lower temp = harder negatives
-                contrastive_weight=0.3,
+                contrastive_weight=0.1,
                 num_epochs = NUM_EPOCHS    # Balance ASR + contrastive loss
             )
             #contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,eval_dataset=eval_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator, trainer=trainer, run_details=run_details)
@@ -233,7 +233,7 @@ def main(argv):
                 wers = []
                 min_wer = 5
                 counter_since_last_min = 0
-                path_of_best_model = f'min_training_far.pth'
+                path_of_best_model = f'min_training_diffusion_dev.pth'
                 num_epochs = 20
                 clean_dataloader= DataLoader(train_dataset, batch_size=8, collate_fn=collator, num_workers=2 )
                 for i in range(num_epochs):
@@ -295,6 +295,7 @@ def generate_rundetails(args):
 def generate_transcriptions(test_dataset,args,trainer):
     if isinstance(test_dataset, dict):
         keys = [key for key,value in test_dataset.items()]
+        keys = ['03']
         datasets = [value for key,value in test_dataset.items()]
         shuffled_test_dataframe = 'shuffled_test_dataframe'
         filepaths = [shuffled_test_dataframe + key + '.csv' for key in keys]

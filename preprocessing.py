@@ -330,7 +330,6 @@ def dipco_parsing(dataframe:pd.DataFrame, run_details:"RunDetails", mode_path:st
             test_path = os.path.join(base_path, 'test')
             test_dataframe['file_path'] = test_dataframe['file_path'].apply(lambda x: os.path.join(test_path, os.path.basename(x)))
             train_dataframe['file_path'] = train_dataframe['file_path'].apply(lambda x: os.path.join(train_path, os.path.basename(x)))
-            breakpoint()
         else:
 
             beamformed_direc = os.path.join(os.getcwd(), 'outputsfromdiffusionmodel')
