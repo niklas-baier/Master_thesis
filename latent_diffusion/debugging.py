@@ -79,7 +79,7 @@ def load_hidden_state(pth_path, device):
     except Exception as e:
         raise RuntimeError(f"Failed to load hidden state from {pth_path}: {e}")
 
-def prepare_hidden_state_for_model(hidden_state, target_channels=2, target_size=(1500, 1280)):
+def prepare_hidden_state_for_model(hidden_state, target_channels=1, target_size=(1500, 1280)):
     """
     Prepare hidden state tensor for the rectified flow model.
     
@@ -164,7 +164,8 @@ def save_hidden_state(tensor, output_path):
 def generate_diffusion_enhanced_hidden_states(
     input_dir='/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/test_latent',
     output_dir='/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/diffusion_enhanced_test/',
-    checkpoint_path='best_model_1500x1280.pth',
+    checkpoint_path= '8_identity8_test_identity_50mapping.pth',
+
     num_steps=100,
     device=None
 ):
@@ -350,7 +351,8 @@ if __name__ == "__main__":
     generate_diffusion_enhanced_hidden_states(
         input_dir='/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/test_latent',
         output_dir='/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/diffusion_enhanced_test/',
-        checkpoint_path='best_model_1500x1280.pth',
+        checkpoint_path='8_identity8_test_identity_50mapping.pth',
+
         num_steps=100,  # High quality generation
         device=device
     )

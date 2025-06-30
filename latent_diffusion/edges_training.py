@@ -35,7 +35,7 @@ class AudioPairDataset(Dataset):
         
         # Define directories
         self.persons_dir = self.root_dir / "persons"
-        self.mic_dirs = [self.root_dir / "mic1"]
+        self.mic_dirs = [self.root_dir /  f"mic{i}" for i in range(1, 6)]
         
         # Validate directories exist
         self._validate_directories()
@@ -300,7 +300,7 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
             
             # Mixed precision forward pass
             if checkpoint != "":
-                loss = rectified_flow.velocity_loss(source, target)
+                loss = rectified_flow.velocity_loss(target, source)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -308,7 +308,7 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
 
                 if scaler is not None:
                     with torch.cuda.amp.autocast():
-                        loss = rectified_flow.velocity_loss(source, target)
+                        loss = rectified_flow.velocity_loss(target, source)
                         if torch.isnan(loss) or loss > 100:
                             print(f"Skipping batch {batch_idx} due to unstable loss: {loss.item()}")
                             continue
@@ -319,7 +319,7 @@ def train_rectified_flow_audio(model, dataloader, validation_loader, num_epochs,
                     scaler.step(optimizer)
                     scaler.update()
                 else:
-                    loss = rectified_flow.velocity_loss(source, target)
+                    loss = rectified_flow.velocity_loss(target, source)
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
@@ -498,7 +498,7 @@ def main():
     if len(sample_tensor.shape) != 3:  # [channels, height, width] format
         in_channels = sample_tensor.shape[0] * 2  # source + target channels
         out_channels = sample_tensor.shape[0]
-        model = RectifiedFlowUNetWhisper(in_channels=in_channels, out_channels=out_channels).to(device)
+        model = RectifiedFlowUNetWhisper(in_channels=2, out_channels=out_channels).to(device)
     else:
         # Fallback for different tensor formats
         pass
