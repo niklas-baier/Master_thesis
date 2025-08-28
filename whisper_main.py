@@ -33,7 +33,7 @@ import copy
 import wandb
 import torchaudio
 from typing import Optional
-from contrastive import train_infonce, train_improved_contrastive_aligned
+from contrastive import  train_with_improvements
 from transcribe import transcribe_results, transcribe_helper, validate_results, predict_logits_and_get_strings_from_them, predict, get_hidden_states, flatten_list_once, create_polars_df, save_evaluation_results_as_csv, ensure_csv_no_problem
 def main(argv):
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +61,6 @@ def main(argv):
         expanded_df['words'] = expanded_df['words'].apply(evaluation.chime_normalisation)
         dev_df['words'] = dev_df['words'].apply(evaluation.chime_normalisation)
         eval_df = pd.concat([expanded_df, dev_df, eval_df])
-
         from visualizations import extract_session
         eval_df['group'] = eval_df['file_path'].apply(extract_session)
         grouped = eval_df.groupby('group')
@@ -90,9 +89,6 @@ def main(argv):
             eval_df = generate_eval_df(args, run_details)
             eval_df = {key: df.drop(columns=['group']) for key, df in eval_df.items()}
             eval_df = { key: (df.drop(columns='__index_level_0__') if '__index_level_0__' in df.columns else df).assign(results=df['results'] if 'results' in df.columns else "")for key, df in eval_df.items()}
-
-
-
         train_dataset, eval_dataset, test_dataset = generate_datasets(run_details=run_details, args=args, expanded_df=expanded_df,eval_df=eval_df, dev_df=dev_df, features=features)
         transcription_csv_path = preprocessing.generate_transcription_csv_path(run_details)
         if isinstance(eval_df, dict):
@@ -128,12 +124,12 @@ def main(argv):
             #trainer = get_trainer(run_details=run_details, training_args=training_args, data_collator= data_collator,train_dataset=train_dataset,eval_dataset=eval_dataset, model=model, processor=processor )
             BATCH_SIZE = 8 # Keep relatively small for demonstration; ensure > 1               # Ensure dataloader_A and dataloader_B use the SAME batch size
             if run_details.environment == 'bwcluster':
-                BATCH_SIZE = 128
+                BATCH_SIZE = 8
             NUM_EPOCHS =20
             LEARNING_RATE = 5e-5 # Standard fine-tuning LR for Whisper can work
             WEIGHT_DECAY = 0.01
             INFONCE_WEIGHT = 0.1 # Weight for the contrastive loss term
-            TEMPERATURE = 0.07 # Common temperature value for InfoNCE
+            TEMPERATURE = 0.15 # Common temperature value for InfoNCE
             device = "cuda"
             _,model, processor = create_tokenizer_model_processor(run_details, torch_dtype=torch_dtype)
             collator = DataCollatorSpeechSeq2SeqWithPadding(processor,model.config.decoder_start_token_id )
@@ -141,7 +137,8 @@ def main(argv):
             print("here")
             wandb.run.tags = wandb.run.tags + ("contrastive", "shuffled", "large batchsize")
             #wer = calculate_wer_on_dataset(dataset=train_dataset[0], model=model, processor=processor, device=device,run_details=run_details)
-            contrastive_model = train_improved_contrastive_aligned(
+            breakpoint()
+            contrastive_model = train_with_improvements(
                 whisper_model=model,
                 processor=processor,
                 collator=collator,
@@ -151,7 +148,7 @@ def main(argv):
                 batch_size=BATCH_SIZE,
                 use_multi_positive=True,  # Use all far-field mics as positives
                 temperature=0.07,         # Lower temp = harder negatives
-                contrastive_weight=0.3,
+                contrastive_weight=0.1,
                 num_epochs = NUM_EPOCHS    # Balance ASR + contrastive loss
             )
             #contrastive_model = train_infonce(whisper_model = model, processor=processor, train_dataset=train_dataset,eval_dataset=eval_dataset,device="cuda", num_epochs=NUM_EPOCHS,BATCH_SIZE=BATCH_SIZE, lr=LEARNING_RATE,weight_decay=WEIGHT_DECAY,infonce_weight=INFONCE_WEIGHT, temperature=TEMPERATURE, collator = collator, trainer=trainer, run_details=run_details)
@@ -230,84 +227,15 @@ def main(argv):
                 model = swa_model
             else:
                 trainer.evaluation_strategy="no"
-                def make_inputs_require_grad(module, input, output):
-                    output.requires_grad_(True)
                 model = trainer.model
-                model.model.model.encoder.conv1.register_forward_hook(make_inputs_require_grad)
                 trainer.model = model
                 start_time = time.perf_counter()
                 wers = []
                 min_wer = 5
                 counter_since_last_min = 0
-                path_of_best_model = f'min_training.pth'
+                path_of_best_model = f'min_training_diffusion_dev.pth'
                 num_epochs = 20
                 clean_dataloader= DataLoader(train_dataset, batch_size=8, collate_fn=collator, num_workers=2 )
-                original_peft_model_forward = model.forward # Store original reference
-
-                def whisper_peft_forward_wrapper(
-                    self, # 'self' refers to the PeftModelForSeq2SeqLM instance
-                    *args,
-                    **kwargs
-                ):
-                    #print("DEBUG: whisper_peft_forward_wrapper called!")
-                    #print(f"DEBUG: wrapper received args: {len(args)}")
-                    #print(f"DEBUG: wrapper received kwargs keys: {list(kwargs.keys())}")
-
-                    # Remove input_ids from kwargs if present
-                    if 'input_ids' in kwargs:
-                        #print("DEBUG: Removing input_ids from kwargs")
-                        del kwargs['input_ids']
-
-                    # Store original base model forward
-                    base_model = self.base_model
-                    original_base_forward = base_model.forward
-
-                    def patched_whisper_forward(**base_kwargs):
-                        #print("DEBUG: patched_whisper_forward called!")
-                        #print(f"DEBUG: Received kwargs: {list(base_kwargs.keys())}")
-
-                        # Filter kwargs to only include parameters that Whisper actually accepts
-                        whisper_params = {
-                            'input_features', 'attention_mask', 'decoder_input_ids',
-                            'decoder_attention_mask', 'head_mask', 'decoder_head_mask',
-                            'cross_attn_head_mask', 'encoder_outputs', 'past_key_values',
-                            'decoder_inputs_embeds', 'decoder_position_ids', 'labels',
-                            'use_cache', 'output_attentions', 'output_hidden_states',
-                            'return_dict', 'cache_position'
-                        }
-
-                        filtered_kwargs = {}
-                        for key, value in base_kwargs.items():
-                            if key in whisper_params:
-                                filtered_kwargs[key] = value
-                            else:
-                                pass
-
-                            #print(f"DEBUG: Filtering out unsupported parameter: {key}")
-
-
-                        #print(f"DEBUG: Calling base Whisper with filtered params: {list(filtered_kwargs.keys())}")
-                        return original_base_forward(**filtered_kwargs)
-
-                    # Temporarily patch the base model
-                    base_model.forward = patched_whisper_forward
-
-                    try:
-                        #print(f"DEBUG: Calling original PEFT forward with kwargs: {list(kwargs.keys())}")
-                        result = original_peft_model_forward(self, *args, **kwargs)
-                        #print(f"DEBUG: Got result type: {type(result)}")
-                        return result
-                    finally:
-                        # Always restore the original forward method
-                        base_model.forward = original_base_forward
-
-                # Proper method binding
-                import types
-                model.forward = types.MethodType(whisper_peft_forward_wrapper, model)
-
-                print(f"DEBUG: Model forward method is now: {model.forward}")
-                print(f"DEBUG: Model type: {type(model)}")
-                print("Using WhisperTraineri in training?", isinstance(trainer, WhisperSeq2SeqTrainer))
                 for i in range(num_epochs):
                     print(i)
                     trainer.args.max_steps = trainer.train_dataset.shape[0]//trainer.args.per_device_train_batch_size
@@ -367,6 +295,7 @@ def generate_rundetails(args):
 def generate_transcriptions(test_dataset,args,trainer):
     if isinstance(test_dataset, dict):
         keys = [key for key,value in test_dataset.items()]
+        keys = ['03']
         datasets = [value for key,value in test_dataset.items()]
         shuffled_test_dataframe = 'shuffled_test_dataframe'
         filepaths = [shuffled_test_dataframe + key + '.csv' for key in keys]

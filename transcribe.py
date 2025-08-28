@@ -69,18 +69,61 @@ def predict_logits_and_get_strings_from_them(trainer:Seq2SeqTrainer, dataset_sli
     result_labels = map_to_strings(predict.label_ids)
     df = pl.DataFrame({'predictions':result_predictions, 'labels': result_labels})
     return df
+def generate_prediction_from_hidden_state(path,model, processor):
+    from transformers.modeling_outputs import BaseModelOutput
+    hidden_state = torch.load(path)
+    hideen_state = hidden_state.to("cuda")
+    encoder_outputs = BaseModelOutput(last_hidden_state=hidden_state)
+    outputs = model.generate(encoder_outputs=encoder_outputs)
+    prediction = processor.batch_decode(outputs.sequences, skip_special_tokens=True)
+    return prediction
+def generate_list_of_local_files(directory_path):
+    import glob
+    import os
+    pth_files = glob.glob(os.path.join(directory_path, '*.pth'))
+    absolute_paths = [os.path.abspath(file) for file in pth_files]
+    return absolute_paths
+
 def get_hidden_states(trainer:Seq2SeqTrainer, test_dataset:Dataset, run_details) :
     tokenizer,_,processor = get_cached_components()
     hidden_states = []
     labels  = []
     predictions = []
     collator = DataCollatorSpeechSeq2SeqWithPadding(processor,trainer.model.config.decoder_start_token_id )
-    test_dataloader= DataLoader(test_dataset, batch_size=4, collate_fn=collator, num_workers=2 )
+    test_dataloader= DataLoader(test_dataset, batch_size=8, collate_fn=collator, num_workers=1)
     model = trainer.model.eval()
     if run_details.precision =='half':
         model = model.half()
     model.config.output_hidden_states = True # return also the hidden states#
     model.generation_config.return_dict_in_generate=True # set to true otherwise hidden_states are not returned
+    from functools import partial
+    generate_prediction = partial(generate_prediction_from_hidden_state, model=model, processor=processor)
+    diffusion_train = '/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/diffusion_enhanced_training'
+    diffusion_test = '/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/diffusion_enhanced_test'
+    persons = '/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/persons'
+    test_latent = '/pfs/work9/workspace/scratch/ka_uhicv-blah/hidden_states_latent_diffusion/test_latent'
+    def transcribe_directory(path, train_directory):
+        import os
+        import re
+        import glob
+        abs_paths = generate_list_of_local_files(path)
+        numeric_prefixes = [re.match(r'.*?(\d+)', os.path.basename(file)).group(1) for file in abs_paths if re.match(r'.*?(\d+)', os.path.basename(file))]
+        corresponding_files = []
+        org_predictions = []
+        for prefix in numeric_prefixes:
+            pattern = os.path.join(train_directory, f'{prefix}*')
+            corresponding_files.extend(glob.glob(pattern))
+        prediction_org = [generate_prediction(x) for x in corresponding_files]
+        org_predictions.append(prediction_org)
+        predictions = [generate_prediction(x) for x in abs_paths]
+        print(predictions)
+        print(org_predictions)
+        return predictions
+    #train_p = transcribe_directory(diffusion_train, persons)
+    #test_p = transcribe_directory(diffusion_test, test_latent)
+    #abs_paths = generate_list_of_local_files(diffusion_train)
+
+    #predictions = [generate_prediction(x) for x in abs_paths]
 
     for batch in tqdm(test_dataloader, desc = "get_hidden_states"):
         with torch.no_grad():

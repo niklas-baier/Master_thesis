@@ -7,7 +7,7 @@ import re
 from latent_visualization import visualize_whisper_batch 
 
 class AudioPairDataset(Dataset):
-    def __init__(self, root_dir, shuffle_pairs=True):
+    def __init__(self, root_dir, shuffle_pairs=False):
         """
         Dataset for pairing clean audio (persons) with noisy audio (mic1-5).
         Each epoch contains ALL possible (person, mic) combinations exactly once.
@@ -21,7 +21,7 @@ class AudioPairDataset(Dataset):
         
         # Define directories
         self.persons_dir = self.root_dir / "persons"
-        self.mic_dirs = [self.root_dir / f"mic{i}" for i in range(1, 6)]
+        self.mic_dirs = [self.root_dir / f"mic{i}" for i in range(1, 2)]
         
         # Validate directories exist
         self._validate_directories()
@@ -77,7 +77,7 @@ class AudioPairDataset(Dataset):
         valid_pairs = []
         
         for person_idx in self.indices:
-            for mic_num in range(1, 6):
+            for mic_num in range(1, 2):
                 mic_file = self.mic_dirs[mic_num - 1] / f"{person_idx}M{mic_num}.pth"
                 if mic_file.exists():
                     valid_pairs.append((person_idx, mic_num))
@@ -130,7 +130,7 @@ class AudioPairDataset(Dataset):
 
 
 def create_audio_dataloader(root_dir, batch_size=32, shuffle=False, num_workers=4, 
-                           shuffle_pairs=True, **kwargs):
+                           shuffle_pairs=False, **kwargs):
     """
     Create a DataLoader for all possible audio pairs suitable for rectified flow training.
     
@@ -207,7 +207,7 @@ if __name__ == "__main__":
         batch_size=1,
         shuffle=False,  # We handle shuffling in the dataset
         num_workers=4,
-        shuffle_pairs=True,  # Shuffle the order of pairs each epoch
+        shuffle_pairs=False,  # Shuffle the order of pairs each epoch
         collate_fn=collate_fn
     )
     
@@ -246,7 +246,6 @@ if __name__ == "__main__":
                 noisy_audio = batch['source']
                 prediction = (clean_audio + noisy_audio) / 2
                 visualize_whisper_batch(clean_audio=clean_audio-noisy_audio, prediction= prediction-noisy_audio, save_path='visualization.png')
-                breakpoint()
             print(batch_idx)
             
             # Rectified flow training code would go here:

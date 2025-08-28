@@ -421,15 +421,15 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
             generate_arrow_ds = partial(Hug_dataset_creation, developer_mode=run_details.developer_mode, features=features, test_dataset=False)
             arrow_ds = [generate_arrow_ds(x) for x in df_chunks]
             datasets = map_datasets( run_details=run_details, train_dataset=arrow_ds,eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
-
-    # removeass
+            train_dataset = datasets['train_dataset']
+            eval_dataset = datasets['eval_dataset']
+            test_dataset = datasets['test_dataset']
         else:
         # save the data from the dataframe in a csv fails if the file already exists
             dataset_paths = {"train": train_dataset_path, "eval": eval_dataset_path, "test": test_dataset_path}
             train_dataset = Hug_dataset_creation( expanded_df, run_details.developer_mode, features,test_dataset=False )
-        datasets = map_datasets( run_details=run_details, train_dataset=train_dataset, eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
+            datasets = map_datasets( run_details=run_details, train_dataset=train_dataset, eval_dataset=eval_dataset,test_dataset=test_dataset, dataset_paths=dataset_paths )
 
-    # remove the unncessary columns
 
         def drop_columns(dataset):
             columns_to_be_dropped = [x for x in dataset.column_names if x not in ['input_features', 'labels']]
@@ -445,10 +445,10 @@ def generate_datasets(run_details:RunDetails, features:Features, args:argparse, 
         eval_dataset = datasets['eval_dataset']
         eval_dataset = drop_columns(eval_dataset)
         if isinstance(test_dataset, dict):
-            test_dataset = datasets['test_dataset']
+            test_dataset = datasets['test_dataset'] 
+            test_dataset = {x : drop_columns(test_dataset_part) for x,test_dataset_part in test_dataset.items()}
         else:
             test_dataset = datasets['test_dataset']
-            test_dataset = {x : drop_columns(test_dataset_part) for x,test_dataset_part in test_dataset.items()}
 
         #tsne_sample_dataset = datasets.load_from_disk(tsne_dataset_path)
 
