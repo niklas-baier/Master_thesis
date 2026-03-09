@@ -1,6 +1,8 @@
-🎙️ Master's Thesis: Enhancing Distil-Whisper ASR Noise Robustness
+🎙️ Master's Thesis: Enhancing the Noise Robustness of pretrained ASR models
 
 This repository serves as the Research Archive for my Master’s Thesis. The project focuses on benchmarking and enhancing the performance of Distil-Whisper in challenging, real-world acoustic environments using the DiPCo (Dinner Party Corpus) dataset.
+
+
 📁 Project Documentation
 
 To understand the research methodology and results without navigating the experimental codebase, please refer to:
