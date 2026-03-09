@@ -15,6 +15,6 @@ To understand the research methodology and results without navigating the experi
 
 This project is maintained as a Static Research Archive. The codebase reflects the iterative, experimental nature of the thesis development cycle.
 
-    Experimental Scripts: All research iterations and training logs are located in the develop branch and the /legacy_experiments folder.
+    Experimental Scripts: All research iterations are located in the develop branch and the /legacy_experiments folder.
 
     Engineering Evolution: This project represents a major milestone in my research journey. For examples of my current software engineering standards—please visit my Journal Project or Jax Project.
